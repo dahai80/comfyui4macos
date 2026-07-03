@@ -1,12 +1,17 @@
 name: digital_human_live
 content_type: digital_human_live
-description: "数字人直播：实时语音驱动数字人（未来功能，需要口型同步模型）"
-stages: []
+description: "数字人直播：实时语音驱动数字人（需要口型同步模型，当前为占位模式）"
+stages: [prompt_expand, tts_synthesize, digital_human_render, assemble]
 defaults:
+  scene_count: 4
+  style_preset: "写实人像"
+  tts_instructions: "自然、流畅的中文播报语气"
   avatar_reference: ""
   lip_sync_model: ""
   live_mode: true
   sample_rate: 24000
 prompts:
-  system_prompt: "prompts/digital_human_director.md"
-style_presets: {}
+  system_prompt_file: "digital_human_director.md"
+style_presets:
+  写实人像: "photorealistic human portrait, studio lighting, neutral background, 8k"
+  卡通形象: "3D cartoon character, vibrant colors, expressive face, clean background"

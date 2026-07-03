@@ -40,7 +40,7 @@ class CheckpointManager:
             completed_stages=list(ctx.completed_stages),
             scenes=list(ctx.scenes),
             artifacts=dict(ctx.artifacts),
-            config_overrides=ctx.config.get("overrides", {}),
+            config_overrides=ctx.config.get("overrides", dict(ctx.config)),
             created_at=ctx.created_at or datetime.now().isoformat(),
             updated_at=datetime.now().isoformat(),
         )

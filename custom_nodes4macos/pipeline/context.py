@@ -44,9 +44,12 @@ class PipelineContext:
 
     def has_artifact_on_disk(self, scene_id: int, kind: str) -> bool:
         path = self.get_artifact(scene_id, kind)
-        if path and os.path.exists(path) and os.path.getsize(path) > 0:
-            return True
-        return False
+        if not path or not os.path.exists(path):
+            return False
+        try:
+            return os.path.getsize(path) > 0
+        except OSError:
+            return False
 
     def update_progress(self, stage_name: str, scene: int = 0, total: int = 0):
         pct = (scene / total * 100) if total > 0 else 0.0

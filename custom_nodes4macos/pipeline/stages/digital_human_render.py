@@ -52,9 +52,10 @@ class DigitalHumanRenderStage(Stage):
         if not avatar_path or not os.path.isfile(avatar_path):
             avatar_path = self._generate_placeholder_avatar(ctx)
 
-        from ..context import PipelineContext
+        from ..checkpoint import CheckpointManager
+        checkpoint = CheckpointManager(ctx.job_dir)
 
-        for scene in scenes:
+        for i, scene in enumerate(scenes):
             sid = scene.get("scene_id", 0)
             if ctx.has_artifact_on_disk(sid, "clip"):
                 logger.info("scene %d clip exists, skipping", sid)
@@ -73,8 +74,13 @@ class DigitalHumanRenderStage(Stage):
             cmd = [
                 "-loop", "1", "-i", avatar_path,
                 "-i", audio_path,
-                "-c:v", "libx264",
-                "-tune", "stillimage",
+            ]
+            from ...ffmpeg_util import has_videotoolbox
+            if has_videotoolbox():
+                cmd += ["-c:v", "h264_videotoolbox", "-q:v", "65"]
+            else:
+                cmd += ["-c:v", "libx264", "-tune", "stillimage", "-crf", "23"]
+            cmd += [
                 "-c:a", "aac",
                 "-b:a", "192k",
                 "-pix_fmt", "yuv420p",
@@ -89,7 +95,10 @@ class DigitalHumanRenderStage(Stage):
             except Exception as exc:
                 logger.error("scene %d: fallback render failed: %s", sid, exc)
 
-        ctx.update_progress("digital_human_render", len(scenes), len(scenes))
+            ctx.update_progress("digital_human_render", i + 1, len(scenes))
+            if ctx.should_checkpoint_scene(i + 1):
+                checkpoint.save(ctx)
+                logger.info("digital_human_render scene-level checkpoint at scene %d", sid)
 
     @staticmethod
     def _generate_placeholder_avatar(ctx) -> str:
@@ -106,7 +115,23 @@ class DigitalHumanRenderStage(Stage):
             img.save(avatar_path)
             logger.info("placeholder avatar generated: %s", avatar_path)
         except ImportError:
+            import struct
+            import zlib
+            w, h = 1080, 1920
+            def _png_chunk(typ, data):
+                c = typ + data
+                return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+            raw = b""
+            for _y in range(h):
+                raw += b"\x00"
+                for _x in range(w):
+                    raw += b"\x28\x28\x3c"
+            ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+            png = b"\x89PNG\r\n\x1a\n"
+            png += _png_chunk(b"IHDR", ihdr)
+            png += _png_chunk(b"IDAT", zlib.compress(raw))
+            png += _png_chunk(b"IEND", b"")
             with open(avatar_path, "wb") as f:
-                f.write(b"\x89PNG\r\n\x1a\n")
-            logger.warning("PIL not available, created empty placeholder avatar")
+                f.write(png)
+            logger.warning("PIL not available, created minimal placeholder avatar (%d bytes)", len(png))
         return avatar_path

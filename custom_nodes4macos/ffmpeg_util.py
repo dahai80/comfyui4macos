@@ -10,6 +10,37 @@ logger = logging.getLogger("custom_nodes4macos.ffmpeg_util")
 _FFMPEG_PATH = os.environ.get("FFMPEG_BIN", "") or shutil.which("ffmpeg")
 _FFPROBE_PATH = os.environ.get("FFPROBE_BIN", "") or shutil.which("ffprobe")
 _DEFAULT_TIMEOUT = float(os.environ.get("FFMPEG_TIMEOUT", "300"))
+_FFMPEG_THREADS = int(os.environ.get("FFMPEG_THREADS", "0"))
+
+_VT_CACHE: bool | None = None
+
+
+def has_videotoolbox() -> bool:
+    global _VT_CACHE
+    if _VT_CACHE is not None:
+        return _VT_CACHE
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-encoders"],
+            capture_output=True, text=True, timeout=10,
+        )
+        _VT_CACHE = "h264_videotoolbox" in result.stdout
+        return _VT_CACHE
+    except Exception:
+        _VT_CACHE = False
+        return False
+
+
+def video_encoder_args(quality: int = 65) -> list[str]:
+    if has_videotoolbox():
+        return ["-c:v", "h264_videotoolbox", "-q:v", str(quality)]
+    return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"]
+
+
+def thread_args() -> list[str]:
+    if _FFMPEG_THREADS > 0:
+        return ["-threads", str(_FFMPEG_THREADS)]
+    return []
 
 
 def ensure_ffmpeg() -> str:
@@ -26,7 +57,8 @@ def ensure_ffprobe() -> str:
 
 def run_ffmpeg(args: list[str], timeout: float | None = None, label: str = "") -> None:
     ffmpeg = ensure_ffmpeg()
-    cmd = [ffmpeg, "-y", "-loglevel", "error", *args]
+    thread_flags = thread_args()
+    cmd = [ffmpeg, "-y", "-loglevel", "error", *thread_flags, *args]
     logger.info("ffmpeg %s args=%s", label or "run", " ".join(cmd[:6]) + (" ..." if len(cmd) > 6 else ""))
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout or _DEFAULT_TIMEOUT)

@@ -121,6 +121,7 @@ class PipelineEngine:
 
         template = self._get_template(content_type)
         config = self._merge_config(template, user_config)
+        config["overrides"] = dict(user_config)
 
         job_id = self._make_job_id()
         job_dir = str(self._output_root / job_id)
@@ -176,6 +177,8 @@ class PipelineEngine:
             memory_budget_gb=memory_budget,
         )
 
+        self._warmup_mlx()
+
         for stage in stages:
             info = stage.info()
             if info.name in ctx.completed_stages:
@@ -207,6 +210,15 @@ class PipelineEngine:
     def list_templates(self) -> list[str]:
         self._ensure_loaded()
         return list(self._templates.keys())
+
+    @staticmethod
+    def _warmup_mlx() -> None:
+        try:
+            import mlx.core as mx
+            _ = mx.zeros(1)
+            logger.info("MLX warmup done")
+        except ImportError:
+            pass
 
     def list_jobs(self) -> list[dict]:
         jobs = []

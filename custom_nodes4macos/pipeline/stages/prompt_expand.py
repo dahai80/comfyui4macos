@@ -11,13 +11,6 @@ logger = logging.getLogger("custom_nodes4macos.pipeline.stages.prompt_expand")
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 
-_STYLE_PRESETS = {
-    "水墨悬疑": "Chinese ink-wash dark fantasy, muted desaturated tones, misty mountains, cinematic, 8k",
-    "纸扎阴森": "paper-crafted eerie folk horror, dim candlelight, cold palette, film grain, 8k",
-    "暗黑道观": "dark Taoist temple interior, incense smoke, chiaroscuro, blood-red accents, 8k",
-    "佛寺夜寂": "abandoned Buddhist shrine, moonlit, cold blue, silent dread, volumetric light, 8k",
-}
-
 
 class PromptExpandStage(Stage):
 
@@ -37,16 +30,34 @@ class PromptExpandStage(Stage):
             return
 
         story_seed = ctx.config.get("story_seed", "")
+        episodes = ctx.config.get("episodes", [])
+
+        if episodes and isinstance(episodes, list) and len(episodes) > 0:
+            self._process_episodes(ctx, model_manager, episodes)
+            return
+
         if not story_seed or not story_seed.strip():
             raise ValueError("prompt_expand: story_seed is empty")
 
         episode_title = ctx.config.get("episode_title", "")
         scene_count = ctx.config.get("scene_count", 8)
-        style_preset = ctx.config.get("style_preset", "水墨悬疑")
+        style_preset = ctx.config.get("style_preset", "")
         temperature = ctx.config.get("prompt_expand_temperature", 0.75)
-        system_prompt_file = ctx.config.get("system_prompt_file", "horror_director.md")
 
-        style_text = _STYLE_PRESETS.get(style_preset, _STYLE_PRESETS["水墨悬疑"])
+        style_presets = ctx.config.get("style_presets", {})
+        if style_preset and style_preset in style_presets:
+            style_text = style_presets[style_preset]
+        elif style_preset:
+            style_text = style_preset
+        else:
+            first_key = next(iter(style_presets), "")
+            style_text = style_presets.get(first_key, "")
+
+        system_prompt_file = (
+            ctx.config.get("system_prompt_file")
+            or ctx.config.get("system_prompt")
+            or "horror_director.md"
+        )
         system_prompt = self._load_system_prompt(system_prompt_file)
         user_msg = self._build_user_message(
             story_seed, episode_title, scene_count, style_preset, style_text,
@@ -61,7 +72,81 @@ class PromptExpandStage(Stage):
             model, tokenizer = handle.model
             content = self._generate(model, tokenizer, messages, temperature)
 
-        parsed = self._parse_json(content)
+        scenes = self._parse_and_validate(content)
+        ctx.scenes = scenes
+        ctx.update_progress("prompt_expand", 1, 1)
+        logger.info("prompt_expand done scenes=%d", len(scenes))
+
+    def _process_episodes(self, ctx, model_manager, episodes) -> None:
+        scene_count = ctx.config.get("scene_count", 8)
+        style_preset = ctx.config.get("style_preset", "")
+        temperature = ctx.config.get("prompt_expand_temperature", 0.75)
+
+        style_presets = ctx.config.get("style_presets", {})
+        if style_preset and style_preset in style_presets:
+            style_text = style_presets[style_preset]
+        elif style_preset:
+            style_text = style_preset
+        else:
+            first_key = next(iter(style_presets), "")
+            style_text = style_presets.get(first_key, "")
+
+        system_prompt_file = (
+            ctx.config.get("system_prompt_file")
+            or ctx.config.get("system_prompt")
+            or "series_director.md"
+        )
+        system_prompt = self._load_system_prompt(system_prompt_file)
+
+        all_scenes = []
+        from ..checkpoint import CheckpointManager
+        checkpoint = CheckpointManager(ctx.job_dir)
+
+        for ep_idx, episode in enumerate(episodes):
+            ep_title = episode.get("title", f"第{ep_idx + 1}集")
+            ep_synopsis = episode.get("synopsis", "")
+            ep_key_scenes = episode.get("key_scenes", [])
+            ep_cliffhanger = episode.get("cliffhanger", "")
+
+            ep_seed = (
+                f"【{ep_title}】\n"
+                f"剧情概要：{ep_synopsis}\n"
+            )
+            if ep_key_scenes:
+                ep_seed += f"关键场景：{', '.join(str(s) for s in ep_key_scenes)}\n"
+            if ep_cliffhanger:
+                ep_seed += f"悬念结尾：{ep_cliffhanger}\n"
+
+            user_msg = self._build_user_message(
+                ep_seed, ep_title, scene_count, style_preset, style_text,
+            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_msg},
+            ]
+
+            with model_manager.acquire("llm") as handle:
+                model, tokenizer = handle.model
+                content = self._generate(model, tokenizer, messages, temperature)
+
+            scenes = self._parse_and_validate(content)
+            for scene in scenes:
+                scene["episode_id"] = episode.get("episode_id", ep_idx + 1)
+                scene["episode_title"] = ep_title
+
+            all_scenes.extend(scenes)
+            ctx.scenes = all_scenes
+            ctx.update_progress("prompt_expand", ep_idx + 1, len(episodes))
+            logger.info("prompt_expand episode %d/%d scenes=%d", ep_idx + 1, len(episodes), len(scenes))
+
+            if ctx.should_checkpoint_scene(ep_idx + 1):
+                checkpoint.save(ctx)
+
+        logger.info("prompt_expand all episodes done total_scenes=%d", len(all_scenes))
+
+    @staticmethod
+    def _parse_and_validate(content: str) -> list[dict]:
+        parsed = PromptExpandStage._parse_json(content)
         if isinstance(parsed, list):
             logger.warning("model returned bare list, wrapping as {scenes: [...]}")
             parsed = {"scenes": parsed}
@@ -76,12 +161,13 @@ class PromptExpandStage(Stage):
             if "scene_id" not in scene:
                 scene["scene_id"] = i + 1
 
-        ctx.scenes = scenes
-        ctx.update_progress("prompt_expand", 1, 1)
-        logger.info("prompt_expand done scenes=%d", len(scenes))
+        return scenes
 
     @staticmethod
     def _load_system_prompt(filename: str) -> str:
+        if os.path.isfile(filename):
+            with open(filename, "r", encoding="utf-8") as f:
+                return f.read()
         path = _PROMPT_DIR / filename
         if not path.exists():
             logger.warning("system prompt missing: %s, using fallback", path)

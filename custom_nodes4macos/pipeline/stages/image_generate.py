@@ -30,6 +30,9 @@ class ImageGenerateStage(Stage):
         steps = ctx.config.get("flux_steps", 4)
         guidance = ctx.config.get("flux_guidance", 4.0)
         seed = ctx.config.get("flux_seed", 0)
+        vary_seed = ctx.config.get("flux_vary_seed", True)
+        consistency_check = ctx.config.get("consistency_check", False)
+        char_ref_dir = ctx.config.get("character_reference_dir", "")
 
         from ..checkpoint import CheckpointManager
         checkpoint = CheckpointManager(ctx.job_dir)
@@ -49,12 +52,27 @@ class ImageGenerateStage(Stage):
                     continue
 
                 prompt = self._build_prompt(visual_prompt, global_style)
+                if consistency_check:
+                    char_desc = scene.get("character_description", "")
+                    if char_desc:
+                        prompt = f"{prompt}, consistent character: {char_desc}"
+                    episode_title = scene.get("episode_title", "")
+                    if episode_title:
+                        prompt = f"{prompt}, from episode: {episode_title}"
                 out_path = ctx.artifact_path(scene_id, "image")
 
+                scene_seed = (seed + scene_id) if (seed and vary_seed) else seed
                 self._generate_image(
-                    pipeline, prompt, width, height, steps, guidance, seed, out_path,
+                    pipeline, prompt, width, height, steps, guidance, scene_seed, out_path,
                 )
                 ctx.set_artifact(scene_id, "image", out_path)
+
+                try:
+                    import mlx.core as mx
+                    mx.clear_cache()
+                except ImportError:
+                    pass
+
                 ctx.update_progress("image_generate", i + 1, len(ctx.scenes))
 
                 if ctx.should_checkpoint_scene(i + 1):
@@ -128,7 +146,7 @@ class ImageGenerateStage(Stage):
             from PIL import Image
             import numpy as np
             arr = mx.array_to_numpy(img)
-            if arr.dtype in (mx.float16, mx.float32):
+            if np.issubdtype(arr.dtype, np.floating):
                 arr = (arr * 255).clip(0, 255).astype("uint8")
             pil_img = Image.fromarray(arr)
             pil_img.save(out_path)

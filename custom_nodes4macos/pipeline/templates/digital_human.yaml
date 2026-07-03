@@ -9,7 +9,7 @@ defaults:
   avatar_reference: ""
   lip_sync_model: ""
 prompts:
-  system_prompt: "prompts/digital_human_director.md"
+  system_prompt_file: "digital_human_director.md"
 style_presets:
   写实人像: "photorealistic human portrait, studio lighting, neutral background, 8k"
   卡通形象: "3D cartoon character, vibrant colors, expressive face, clean background"

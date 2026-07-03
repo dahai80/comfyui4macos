@@ -61,10 +61,15 @@ class KenBurnsStage(Stage):
             self._render_sequential(ctx, tasks)
 
     def _render_sequential(self, ctx, tasks):
+        from ..checkpoint import CheckpointManager
+        checkpoint = CheckpointManager(ctx.job_dir)
         for idx, (img, audio, dur, preset, w, h, fps, sid, out) in enumerate(tasks):
             self._render_clip(img, audio, dur, preset, w, h, fps, sid, out)
             ctx.set_artifact(sid, "clip", out)
             ctx.update_progress("ken_burns", idx + 1, len(tasks))
+            if ctx.should_checkpoint_scene(idx + 1):
+                checkpoint.save(ctx)
+                logger.info("ken_burns scene-level checkpoint at scene %d", sid)
 
     def _render_parallel(self, ctx, tasks, workers):
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -116,7 +121,7 @@ class KenBurnsStage(Stage):
             "-vf", zoompan,
         ]
 
-        hw_accel = _detect_videotoolbox()
+        hw_accel = ffmpeg_util.has_videotoolbox()
         if hw_accel:
             args += ["-c:v", "h264_videotoolbox", "-q:v", "65"]
         else:
@@ -171,25 +176,3 @@ def _build_zoompan(preset: str, out_w: int, out_h: int, fps: int, total_frames: 
         f"zoompan=z='{z}':x='{x}':y='{y}':d={D}:s={out_w}x{out_h}:fps={fps},"
         f"format=yuv420p"
     )
-
-
-_VT_CACHE: bool | None = None
-
-
-def _detect_videotoolbox() -> bool:
-    global _VT_CACHE
-    if _VT_CACHE is not None:
-        return _VT_CACHE
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["ffmpeg", "-encoders"],
-            capture_output=True, text=True, timeout=10,
-        )
-        _VT_CACHE = "h264_videotoolbox" in result.stdout
-        if _VT_CACHE:
-            logger.info("VideoToolbox h264 encoder available")
-        return _VT_CACHE
-    except Exception:
-        _VT_CACHE = False
-        return False

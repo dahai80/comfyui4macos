@@ -255,7 +255,7 @@ class StoryIngestStage(Stage):
             episodes = parsed
         else:
             return []
-        for ep in episodes:
+        for idx, ep in enumerate(episodes):
             if "episode_id" not in ep:
-                ep["episode_id"] = episodes.index(ep) + 1
+                ep["episode_id"] = idx + 1
         return episodes

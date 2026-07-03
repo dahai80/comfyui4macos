@@ -152,10 +152,8 @@ class AssembleStage(Stage):
         args += ["-map", video_label]
         if audio_map:
             args += ["-map", audio_map]
-        args += [
-            "-c:v", _video_encoder(), "-preset", "ultrafast", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
-        ]
+        args += ffmpeg_util.video_encoder_args()
+        args += ["-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"]
         if bgm_ok or use_clip_audio:
             args += ["-shortest"]
         args.append(out_path)
@@ -171,25 +169,3 @@ class AssembleStage(Stage):
 
         dur = ffmpeg_util.probe_duration(out_path)
         logger.info("assemble done dur=%.2fs size=%d", dur, os.path.getsize(out_path))
-
-
-_ASSEMBLE_VT_CACHE: bool | None = None
-
-
-def _video_encoder() -> str:
-    global _ASSEMBLE_VT_CACHE
-    if _ASSEMBLE_VT_CACHE is not None:
-        return "h264_videotoolbox" if _ASSEMBLE_VT_CACHE else "libx264"
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["ffmpeg", "-encoders"],
-            capture_output=True, text=True, timeout=10,
-        )
-        _ASSEMBLE_VT_CACHE = "h264_videotoolbox" in result.stdout
-        if _ASSEMBLE_VT_CACHE:
-            logger.info("assemble: VideoToolbox h264 encoder available")
-        return "h264_videotoolbox" if _ASSEMBLE_VT_CACHE else "libx264"
-    except Exception:
-        _ASSEMBLE_VT_CACHE = False
-        return "libx264"

@@ -15,7 +15,7 @@ defaults:
   checkpoint_every_n_scenes: 5
   consistency_check: true
 prompts:
-  system_prompt: "prompts/series_director.md"
+  system_prompt_file: "series_director.md"
 style_presets:
   电影叙事: "cinematic storytelling, warm golden light, shallow depth of field, film grain, 8k"
   纪实风格: "documentary style, natural lighting, handheld camera feel, desaturated, 4k"

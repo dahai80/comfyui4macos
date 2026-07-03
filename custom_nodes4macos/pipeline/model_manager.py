@@ -130,7 +130,7 @@ class ModelManager:
 
         if self._mode == ModelMode.RESIDENT:
             self._loaded[name] = model
-            self._current_usage += reg["memory_gb"]
+        self._current_usage += reg["memory_gb"]
 
         return ModelHandle(name, model, self)
 
@@ -140,7 +140,10 @@ class ModelManager:
             return
         if name in self._loaded:
             del self._loaded[name]
-        self._current_usage = max(0.0, self._current_usage - reg["memory_gb"])
+        if self._current_usage >= reg["memory_gb"]:
+            self._current_usage -= reg["memory_gb"]
+        else:
+            self._current_usage = 0.0
         gc.collect()
         try:
             import mlx.core as mx
@@ -157,8 +160,11 @@ class ModelManager:
     @staticmethod
     def _load_flux(path: str):
         import sys
-        flux_dir = os.path.expanduser("~/claude-home/mlx-examples/flux")
-        if flux_dir not in sys.path:
+        flux_dir = os.environ.get(
+            "FLUX_PIPELINE_DIR",
+            os.path.expanduser("~/claude-home/mlx-examples/flux"),
+        )
+        if os.path.isdir(flux_dir) and flux_dir not in sys.path:
             sys.path.insert(0, flux_dir)
         from flux import FluxPipeline
         return FluxPipeline(path)

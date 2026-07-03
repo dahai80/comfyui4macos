@@ -45,11 +45,16 @@ PipelineEngine
 
 ### Performance Optimizations
 
-- **VideoToolbox h264**: Auto-detected hardware encoding on Apple Silicon
+- **VideoToolbox h264**: Auto-detected hardware encoding on Apple Silicon (consolidated in `ffmpeg_util.py`)
+- **MLX warmup**: `mx.zeros(1)` pre-initializes Metal before first model load
+- **Per-scene cache clear**: `mx.clear_cache()` after each image/TTS generation prevents memory accumulation
+- **Seed variation**: `flux_vary_seed` offsets seed per scene for diverse images
 - **Parallel Ken Burns**: Configurable worker threads (`ken_burns_workers: 2-3`)
-- **Ultrafast preset**: FFmpeg `-preset ultrafast` for clip rendering
+- **Ultrafast preset**: FFmpeg `-preset ultrafast` for clip rendering; VideoToolbox `-q:v 65` for hardware
+- **Configurable FFmpeg threads**: `FFMPEG_THREADS` env var for parallel worker control
 - **Auto memory budget**: Detects system RAM via `sysctl hw.memsize`, reserves 40% + 4G
 - **Scene-level checkpointing**: Resume mid-stage without re-processing completed scenes
+- **Scene-level idempotency**: Each stage checks `has_artifact_on_disk()` before generating
 - **Lazy MLX imports**: All `import mlx_*` inside stage methods; no crash without MLX
 - **HTTP fallback**: `FusionMLXClient` when MLX not available
 
@@ -131,6 +136,7 @@ custom_nodes4macos/
     ├── test_checkpoint.py
     ├── test_stages.py
     ├── test_new_stages.py
+	    ├── test_performance_and_fixes.py
     └── ... (legacy node tests)
 ```
 

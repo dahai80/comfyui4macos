@@ -51,6 +51,13 @@ class TTSSynthesizeStage(Stage):
                     tts_model, audio_script, voice, instructions, speed, out_path,
                 )
                 ctx.set_artifact(scene_id, "audio", out_path)
+
+                try:
+                    import mlx.core as mx
+                    mx.clear_cache()
+                except ImportError:
+                    pass
+
                 ctx.update_progress("tts_synthesize", i + 1, len(ctx.scenes))
 
                 if ctx.should_checkpoint_scene(i + 1):
@@ -102,7 +109,7 @@ class TTSSynthesizeStage(Stage):
             import numpy as np
             import wave
             arr = mx.array_to_numpy(audio)
-            if arr.dtype in (mx.float16, mx.float32):
+            if np.issubdtype(arr.dtype, np.floating):
                 arr = (arr * 32767).clip(-32767, 32767).astype("int16")
             with wave.open(out_path, "wb") as wf:
                 wf.setnchannels(1)
@@ -126,8 +133,10 @@ class TTSSynthesizeStage(Stage):
         with FusionMLXClient() as client:
             if not client.health():
                 raise RuntimeError("fusion-mlx unreachable (HTTP fallback)")
+            model_name = os.environ.get("FUSION_TTS_MODEL", "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit")
             audio_bytes = client.synthesize_speech(
                 text=text,
+                model=model_name,
                 voice=voice or None,
                 instructions=instructions or None,
                 speed=speed,
