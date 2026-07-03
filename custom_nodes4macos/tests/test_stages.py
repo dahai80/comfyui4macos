@@ -178,5 +178,195 @@ class TestPromptExpandParseJson(unittest.TestCase):
         self.assertEqual(result, [1, 2, 3])
 
 
+class TestPromptExpandProcess(unittest.TestCase):
+
+    @patch("custom_nodes4macos.pipeline.stages.prompt_expand.PromptExpandStage._generate")
+    def test_process_sets_scenes(self, mock_generate):
+        mock_generate.return_value = json.dumps({
+            "scenes": [
+                {"visual_prompt": "dark forest", "audio_script": "narration"},
+                {"visual_prompt": "abandoned temple", "audio_script": "narration 2"},
+            ],
+        })
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+            "story_seed": "深夜赶路",
+            "scene_count": 2,
+            "style_presets": {"水墨悬疑": "ink-wash dark"},
+        })
+        mock_mgr = MagicMock()
+        mock_handle = MagicMock()
+        mock_handle.model = (MagicMock(), MagicMock())
+        mock_handle.__enter__ = MagicMock(return_value=mock_handle)
+        mock_handle.__exit__ = MagicMock(return_value=False)
+        mock_mgr.acquire.return_value = mock_handle
+
+        stage = PromptExpandStage()
+        stage.process(ctx, mock_mgr)
+        self.assertEqual(len(ctx.scenes), 2)
+        self.assertEqual(ctx.scenes[0]["visual_prompt"], "dark forest")
+
+    @patch("custom_nodes4macos.pipeline.stages.prompt_expand.PromptExpandStage._generate")
+    def test_process_extracts_global_style(self, mock_generate):
+        mock_generate.return_value = json.dumps({
+            "global_style": "ink-wash horror",
+            "scenes": [{"visual_prompt": "x"}],
+        })
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+            "story_seed": "鬼故事",
+            "scene_count": 1,
+            "style_presets": {},
+        })
+        mock_mgr = MagicMock()
+        mock_handle = MagicMock()
+        mock_handle.model = (MagicMock(), MagicMock())
+        mock_handle.__enter__ = MagicMock(return_value=mock_handle)
+        mock_handle.__exit__ = MagicMock(return_value=False)
+        mock_mgr.acquire.return_value = mock_handle
+
+        stage = PromptExpandStage()
+        stage.process(ctx, mock_mgr)
+        self.assertEqual(ctx.config.get("global_style"), "ink-wash horror")
+
+    def test_process_raises_empty_seed(self):
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+            "story_seed": "",
+            "scene_count": 1,
+            "style_presets": {},
+        })
+        stage = PromptExpandStage()
+        with self.assertRaises(ValueError):
+            stage.process(ctx, MagicMock())
+
+
+class TestImageGenerateProcess(unittest.TestCase):
+
+    @patch("custom_nodes4macos.pipeline.stages.image_generate.ImageGenerateStage._generate_image")
+    def test_process_generates_images(self, mock_gen):
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+            "flux_width": 512, "flux_height": 512,
+            "flux_steps": 4, "flux_guidance": 4.0,
+            "flux_seed": 42, "flux_vary_seed": True,
+        })
+        ctx.scenes = [
+            {"scene_id": 1, "visual_prompt": "dark temple"},
+            {"scene_id": 2, "visual_prompt": "misty road"},
+        ]
+
+        mock_mgr = MagicMock()
+        mock_handle = MagicMock()
+        mock_handle.model = MagicMock()
+        mock_handle.__enter__ = MagicMock(return_value=mock_handle)
+        mock_handle.__exit__ = MagicMock(return_value=False)
+        mock_mgr.acquire.return_value = mock_handle
+
+        stage = ImageGenerateStage()
+        stage.process(ctx, mock_mgr)
+        self.assertEqual(mock_gen.call_count, 2)
+        self.assertIn("1_image", ctx.artifacts)
+        self.assertIn("2_image", ctx.artifacts)
+
+    @patch("custom_nodes4macos.pipeline.stages.image_generate.ImageGenerateStage._generate_image")
+    def test_process_skips_existing_image(self, mock_gen):
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+            "flux_width": 512, "flux_height": 512,
+            "flux_steps": 4, "flux_guidance": 4.0,
+            "flux_seed": 0, "flux_vary_seed": False,
+        })
+        ctx.scenes = [{"scene_id": 1, "visual_prompt": "dark temple"}]
+
+        img_path = ctx.artifact_path(1, "image")
+        with open(img_path, "wb") as f:
+            f.write(b"fake_png")
+
+        mock_mgr = MagicMock()
+        mock_handle = MagicMock()
+        mock_handle.model = MagicMock()
+        mock_handle.__enter__ = MagicMock(return_value=mock_handle)
+        mock_handle.__exit__ = MagicMock(return_value=False)
+        mock_mgr.acquire.return_value = mock_handle
+
+        stage = ImageGenerateStage()
+        stage.process(ctx, mock_mgr)
+        mock_gen.assert_not_called()
+
+    @patch("custom_nodes4macos.pipeline.stages.image_generate.ImageGenerateStage._generate_image")
+    def test_process_with_global_style(self, mock_gen):
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+            "flux_width": 512, "flux_height": 512,
+            "flux_steps": 4, "flux_guidance": 4.0,
+            "flux_seed": 0, "flux_vary_seed": False,
+            "global_style": "ink-wash horror, 8k",
+        })
+        ctx.scenes = [{"scene_id": 1, "visual_prompt": "dark temple"}]
+
+        mock_mgr = MagicMock()
+        mock_handle = MagicMock()
+        mock_handle.model = MagicMock()
+        mock_handle.__enter__ = MagicMock(return_value=mock_handle)
+        mock_handle.__exit__ = MagicMock(return_value=False)
+        mock_mgr.acquire.return_value = mock_handle
+
+        stage = ImageGenerateStage()
+        stage.process(ctx, mock_mgr)
+        call_args = mock_gen.call_args
+        prompt_arg = call_args[0][1]
+        self.assertIn("ink-wash horror", prompt_arg)
+
+
+class TestTTSSynthesizeProcess(unittest.TestCase):
+
+    @patch("custom_nodes4macos.pipeline.stages.tts_synthesize.TTSSynthesizeStage._synthesize")
+    def test_process_synthesizes_audio(self, mock_synth):
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+            "tts_voice": "", "tts_speed": 1.0,
+        })
+        ctx.scenes = [
+            {"scene_id": 1, "audio_script": "夜晚的森林"},
+            {"scene_id": 2, "audio_script": "远处传来脚步声"},
+        ]
+
+        mock_mgr = MagicMock()
+        mock_handle = MagicMock()
+        mock_handle.model = MagicMock()
+        mock_handle.__enter__ = MagicMock(return_value=mock_handle)
+        mock_handle.__exit__ = MagicMock(return_value=False)
+        mock_mgr.acquire.return_value = mock_handle
+
+        stage = TTSSynthesizeStage()
+        stage.process(ctx, mock_mgr)
+        self.assertEqual(mock_synth.call_count, 2)
+        self.assertIn("1_audio", ctx.artifacts)
+        self.assertIn("2_audio", ctx.artifacts)
+
+    @patch("custom_nodes4macos.pipeline.stages.tts_synthesize.TTSSynthesizeStage._synthesize")
+    def test_process_skips_empty_audio_script(self, mock_synth):
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+            "tts_voice": "", "tts_speed": 1.0,
+        })
+        ctx.scenes = [
+            {"scene_id": 1, "audio_script": "有内容"},
+            {"scene_id": 2, "audio_script": ""},
+        ]
+
+        mock_mgr = MagicMock()
+        mock_handle = MagicMock()
+        mock_handle.model = MagicMock()
+        mock_handle.__enter__ = MagicMock(return_value=mock_handle)
+        mock_handle.__exit__ = MagicMock(return_value=False)
+        mock_mgr.acquire.return_value = mock_handle
+
+        stage = TTSSynthesizeStage()
+        stage.process(ctx, mock_mgr)
+        mock_synth.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

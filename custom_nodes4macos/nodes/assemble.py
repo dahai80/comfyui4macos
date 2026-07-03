@@ -152,7 +152,7 @@ class FusionMLXAssemble:
         args += ["-map", video_label]
         if audio_map:
             args += ["-map", audio_map]
-        args += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        args += [*ffmpeg_util.video_encoder_args(),
                  "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"]
         if bgm_ok or use_clip_audio:
             args += ["-shortest"]

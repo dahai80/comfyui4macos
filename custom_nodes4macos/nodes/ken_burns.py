@@ -121,7 +121,7 @@ class FusionMLXKenBurns:
             args = ["-loop", "1", "-i", png_path, "-i", audio_path,
                     "-filter_complex", f"[0:v]{filter_chain}[v]",
                     "-map", "[v]", "-map", "1:a",
-                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                    *ffmpeg_util.video_encoder_args(),
                     "-c:a", "aac", "-b:a", "128k",
                     "-shortest", "-movflags", "+faststart", out_path]
             label = f"ken_burns+audio {width}x{height} {total_frames}f"
@@ -129,7 +129,7 @@ class FusionMLXKenBurns:
             args = ["-loop", "1", "-i", png_path,
                     "-filter_complex", f"[0:v]{filter_chain}[v]",
                     "-map", "[v]",
-                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                    *ffmpeg_util.video_encoder_args(),
                     "-t", f"{total_frames / fps:.3f}",
                     "-movflags", "+faststart", out_path]
             label = f"ken_burns {width}x{height} {total_frames}f"

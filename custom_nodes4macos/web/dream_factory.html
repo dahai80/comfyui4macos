@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>梦工厂 Dream Factory</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; padding: 16px; }
+.container { max-width: 800px; margin: 0 auto; }
+h1 { font-size: 24px; margin-bottom: 16px; color: #e94560; }
+.card { background: #16213e; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+label { display: block; font-size: 14px; color: #aaa; margin-bottom: 6px; }
+select, input, textarea { width: 100%; padding: 10px; border: 1px solid #333; border-radius: 8px; background: #0f3460; color: #eee; font-size: 14px; margin-bottom: 12px; }
+textarea { min-height: 80px; resize: vertical; }
+.btn { background: #e94560; color: #fff; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; cursor: pointer; width: 100%; }
+.btn:hover { background: #c73652; }
+.btn:disabled { background: #555; cursor: not-allowed; }
+.progress { margin-top: 12px; }
+.progress-bar { background: #0f3460; border-radius: 4px; height: 20px; overflow: hidden; }
+.progress-fill { background: #e94560; height: 100%; transition: width 0.3s; width: 0%; }
+.progress-text { font-size: 13px; color: #aaa; margin-top: 4px; }
+.result { margin-top: 16px; display: none; }
+video { width: 100%; border-radius: 8px; }
+.job-list { margin-top: 16px; }
+.job-item { background: #0f3460; padding: 12px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+.job-item .title { font-size: 14px; }
+.job-item .stages { font-size: 12px; color: #aaa; }
+.resume-btn { background: #533483; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>🎬 梦工厂 Dream Factory</h1>
+    <div class="card">
+        <label>内容类型</label>
+        <select id="contentType">
+            <option value="short_drama">短剧 Short Drama (1-10min)</option>
+            <option value="ad_drama">广告剧 Ad Drama (1-5min)</option>
+            <option value="puppet_show">木偶剧 Puppet Show (5-15min)</option>
+            <option value="medium_video">中短视频 Medium Video (30min)</option>
+            <option value="series">连续剧 Series (PDF→30集)</option>
+            <option value="digital_human">数字人 Digital Human</option>
+            <option value="digital_human_live">数字人直播 Digital Human Live</option>
+        </select>
+        <label>故事种子</label>
+        <textarea id="storySeed" placeholder="输入故事种子，如：深夜赶路遇白衣女子…"></textarea>
+        <label>故事文件 (PDF/EPUB/TXT, 连续剧模式)</label>
+        <input id="storyFile" type="text" placeholder="/path/to/story.pdf">
+        <div style="display:flex;gap:12px">
+            <div style="flex:1"><label>分镜数</label><input id="sceneCount" type="number" value="8" min="1" max="100"></div>
+            <div style="flex:1"><label>画风预设</label><input id="stylePreset" type="text" placeholder="水墨悬疑"></div>
+            <div style="flex:1"><label>集数(连续剧)</label><input id="episodeCount" type="number" value="30" min="1" max="200"></div>
+        </div>
+        <label>数字人头像路径</label>
+        <input id="avatarReference" type="text" placeholder="/path/to/avatar.png">
+        <button class="btn" id="runBtn" onclick="runPipeline()">🎬 生成视频</button>
+    </div>
+    <div class="progress" id="progressArea" style="display:none">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-text" id="progressText">准备中…</div>
+    </div>
+    <div class="result card" id="resultArea">
+        <label>生成结果</label>
+        <video id="resultVideo" controls></video>
+    </div>
+    <div class="job-list card" id="jobList">
+        <label>历史任务</label>
+        <div id="jobItems"></div>
+    </div>
+</div>
+<script>
+const API = window.location.origin;
+async function runPipeline() {
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ 生成中…';
+    document.getElementById('progressArea').style.display = 'block';
+    const payload = {
+        content_type: document.getElementById('contentType').value,
+        story_seed: document.getElementById('storySeed').value,
+        scene_count: parseInt(document.getElementById('sceneCount').value) || 0,
+        style_preset: document.getElementById('stylePreset').value,
+        story_file: document.getElementById('storyFile').value,
+        episode_count: parseInt(document.getElementById('episodeCount').value) || 30,
+        avatar_reference: document.getElementById('avatarReference').value,
+    };
+    try {
+        const resp = await fetch(`${API}/prompt`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                "1": {
+                    class_type: "FusionMLXDreamFactory",
+                    inputs: payload
+                }
+            })
+        });
+        const data = await resp.json();
+        if (data.prompt_id) {
+            pollStatus(data.prompt_id);
+        } else {
+            throw new Error(data.error || '提交失败');
+        }
+    } catch(e) {
+        document.getElementById('progressText').textContent = '❌ ' + e.message;
+        btn.disabled = false;
+        btn.textContent = '🎬 生成视频';
+    }
+}
+async function pollStatus(promptId) {
+    const fill = document.getElementById('progressFill');
+    const text = document.getElementById('progressText');
+    let pct = 0;
+    const iv = setInterval(async () => {
+        try {
+            const resp = await fetch(`${API}/history/${promptId}`);
+            const data = await resp.json();
+            const status = data[promptId];
+            if (status && status.status) {
+                if (status.status.completed) {
+                    clearInterval(iv);
+                    fill.style.width = '100%';
+                    text.textContent = '✅ 生成完成';
+                    const outputs = status.outputs;
+                    if (outputs && outputs['1']) {
+                        const videoPath = outputs['1'].video_path;
+                        if (videoPath) {
+                            const vid = document.getElementById('resultVideo');
+                            vid.src = `/view?filename=${encodeURIComponent(videoPath.split('/').pop())}`;
+                            document.getElementById('resultArea').style.display = 'block';
+                        }
+                    }
+                    document.getElementById('runBtn').disabled = false;
+                    document.getElementById('runBtn').textContent = '🎬 生成视频';
+                } else if (status.status.status_str === 'error') {
+                    clearInterval(iv);
+                    text.textContent = '❌ 生成失败';
+                    document.getElementById('runBtn').disabled = false;
+                    document.getElementById('runBtn').textContent = '🎬 生成视频';
+                }
+            }
+            pct = Math.min(pct + 2, 95);
+            fill.style.width = pct + '%';
+        } catch(e) {}
+    }, 3000);
+}
+async function loadJobs() {
+    try {
+        const resp = await fetch(`${API}/api/comfyui/dream-factory/jobs`);
+        const data = await resp.json();
+        const container = document.getElementById('jobItems');
+        container.innerHTML = '';
+        (data.jobs || []).forEach(job => {
+            const div = document.createElement('div');
+            div.className = 'job-item';
+            div.innerHTML = `<div><div class="title">${job.job_id}</div><div class="stages">${job.content_type} — ${job.completed_stages.join(', ')}</div></div>`;
+            container.appendChild(div);
+        });
+    } catch(e) {}
+}
+loadJobs();
+</script>
+</body>
+</html>

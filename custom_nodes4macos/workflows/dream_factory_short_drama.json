@@ -1,0 +1,38 @@
+{
+    "last_node_id": 1,
+    "last_link_id": 1,
+    "nodes": [
+        {
+            "id": 1,
+            "type": "FusionMLXDreamFactory",
+            "pos": [200, 200],
+            "size": [400, 400],
+            "flags": {},
+            "order": 0,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [
+                {"name": "video_path", "type": "STRING", "links": null},
+                {"name": "scenes_json", "type": "STRING", "links": null}
+            ],
+            "widgets_values": [
+                "short_drama",
+                "深夜赶路遇白衣女子，荒村古寺钟声起",
+                "",
+                8,
+                "水墨悬疑",
+                "",
+                30,
+                "",
+                "",
+                "{}"
+            ],
+            "properties": {"Node name for S&R": "FusionMLXDreamFactory"}
+        }
+    ],
+    "links": [],
+    "groups": [],
+    "config": {},
+    "extra": {},
+    "version": 0.4
+}
