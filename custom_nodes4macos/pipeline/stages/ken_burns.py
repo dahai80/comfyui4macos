@@ -121,11 +121,7 @@ class KenBurnsStage(Stage):
             "-vf", zoompan,
         ]
 
-        hw_accel = ffmpeg_util.has_videotoolbox()
-        if hw_accel:
-            args += ["-c:v", "h264_videotoolbox", "-q:v", "65"]
-        else:
-            args += ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"]
+        args += ffmpeg_util.video_encoder_args()
         args += ["-pix_fmt", "yuv420p"]
 
         if has_audio:

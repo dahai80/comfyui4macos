@@ -72,7 +72,13 @@ class PromptExpandStage(Stage):
             model, tokenizer = handle.model
             content = self._generate(model, tokenizer, messages, temperature)
 
-        scenes = self._parse_and_validate(content)
+        parsed = self._parse_and_validate_raw(content)
+        scenes = parsed.get("scenes", [])
+
+        if "global_style" in parsed and "global_style" not in ctx.config:
+            ctx.config["global_style"] = parsed["global_style"]
+            logger.info("global_style from LLM: %s", parsed["global_style"])
+
         ctx.scenes = scenes
         ctx.update_progress("prompt_expand", 1, 1)
         logger.info("prompt_expand done scenes=%d", len(scenes))
@@ -99,6 +105,7 @@ class PromptExpandStage(Stage):
         system_prompt = self._load_system_prompt(system_prompt_file)
 
         all_scenes = []
+        global_scene_offset = 0
         from ..checkpoint import CheckpointManager
         checkpoint = CheckpointManager(ctx.job_dir)
 
@@ -129,10 +136,18 @@ class PromptExpandStage(Stage):
                 model, tokenizer = handle.model
                 content = self._generate(model, tokenizer, messages, temperature)
 
-            scenes = self._parse_and_validate(content)
+            parsed = self._parse_and_validate_raw(content)
+            scenes = parsed.get("scenes", [])
             for scene in scenes:
                 scene["episode_id"] = episode.get("episode_id", ep_idx + 1)
                 scene["episode_title"] = ep_title
+            global_scene_offset = self._renumber_scenes(
+                scenes, global_scene_offset,
+            )
+
+            if "global_style" in parsed and "global_style" not in ctx.config:
+                ctx.config["global_style"] = parsed["global_style"]
+                logger.info("global_style from LLM: %s", parsed["global_style"])
 
             all_scenes.extend(scenes)
             ctx.scenes = all_scenes
@@ -146,6 +161,11 @@ class PromptExpandStage(Stage):
 
     @staticmethod
     def _parse_and_validate(content: str) -> list[dict]:
+        parsed = PromptExpandStage._parse_and_validate_raw(content)
+        return parsed.get("scenes", [])
+
+    @staticmethod
+    def _parse_and_validate_raw(content: str) -> dict:
         parsed = PromptExpandStage._parse_json(content)
         if isinstance(parsed, list):
             logger.warning("model returned bare list, wrapping as {scenes: [...]}")
@@ -161,7 +181,13 @@ class PromptExpandStage(Stage):
             if "scene_id" not in scene:
                 scene["scene_id"] = i + 1
 
-        return scenes
+        return parsed
+
+    @staticmethod
+    def _renumber_scenes(scenes: list[dict], offset: int) -> int:
+        for i, scene in enumerate(scenes):
+            scene["scene_id"] = offset + i + 1
+        return offset + len(scenes)
 
     @staticmethod
     def _load_system_prompt(filename: str) -> str:

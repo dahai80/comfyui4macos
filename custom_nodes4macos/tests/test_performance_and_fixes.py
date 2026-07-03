@@ -229,5 +229,43 @@ class TestFFmpegUtilVideoEncoder(unittest.TestCase):
         ffmpeg_util._FFMPEG_THREADS = orig
 
 
+class TestPromptExpandSceneIdNoCollision(unittest.TestCase):
+
+    def test_renumber_scenes_global_offset(self):
+        from custom_nodes4macos.pipeline.stages.prompt_expand import PromptExpandStage
+        scenes_ep1 = [
+            {"scene_id": 1, "visual_prompt": "a"},
+            {"scene_id": 2, "visual_prompt": "b"},
+        ]
+        scenes_ep2 = [
+            {"scene_id": 1, "visual_prompt": "c"},
+            {"scene_id": 2, "visual_prompt": "d"},
+        ]
+        offset = PromptExpandStage._renumber_scenes(scenes_ep1, 0)
+        self.assertEqual(offset, 2)
+        self.assertEqual(scenes_ep1[0]["scene_id"], 1)
+        self.assertEqual(scenes_ep1[1]["scene_id"], 2)
+
+        offset = PromptExpandStage._renumber_scenes(scenes_ep2, offset)
+        self.assertEqual(offset, 4)
+        self.assertEqual(scenes_ep2[0]["scene_id"], 3)
+        self.assertEqual(scenes_ep2[1]["scene_id"], 4)
+
+    def test_parse_and_validate_raw_extracts_global_style(self):
+        from custom_nodes4macos.pipeline.stages.prompt_expand import PromptExpandStage
+        json_str = '{"global_style": "ink wash dark", "scenes": [{"visual_prompt": "x"}]}'
+        parsed = PromptExpandStage._parse_and_validate_raw(json_str)
+        self.assertEqual(parsed["global_style"], "ink wash dark")
+        self.assertEqual(len(parsed["scenes"]), 1)
+
+    def test_parse_and_validate_backwards_compat(self):
+        from custom_nodes4macos.pipeline.stages.prompt_expand import PromptExpandStage
+        json_str = '{"scenes": [{"visual_prompt": "a"}, {"visual_prompt": "b"}]}'
+        scenes = PromptExpandStage._parse_and_validate(json_str)
+        self.assertEqual(len(scenes), 2)
+        self.assertEqual(scenes[0]["scene_id"], 1)
+        self.assertEqual(scenes[1]["scene_id"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

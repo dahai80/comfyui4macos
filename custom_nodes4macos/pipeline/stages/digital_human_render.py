@@ -75,11 +75,8 @@ class DigitalHumanRenderStage(Stage):
                 "-loop", "1", "-i", avatar_path,
                 "-i", audio_path,
             ]
-            from ...ffmpeg_util import has_videotoolbox
-            if has_videotoolbox():
-                cmd += ["-c:v", "h264_videotoolbox", "-q:v", "65"]
-            else:
-                cmd += ["-c:v", "libx264", "-tune", "stillimage", "-crf", "23"]
+            from ...ffmpeg_util import video_encoder_args
+            cmd += video_encoder_args()
             cmd += [
                 "-c:a", "aac",
                 "-b:a", "192k",

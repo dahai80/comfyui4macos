@@ -55,6 +55,9 @@ PipelineEngine
 - **Auto memory budget**: Detects system RAM via `sysctl hw.memsize`, reserves 40% + 4G
 - **Scene-level checkpointing**: Resume mid-stage without re-processing completed scenes
 - **Scene-level idempotency**: Each stage checks `has_artifact_on_disk()` before generating
+- **Global scene_id for series**: `_renumber_scenes()` ensures unique scene_ids across episodes (no artifact key collisions)
+- **global_style propagation**: LLM output `global_style` field is extracted and passed to `ImageGenerateStage`
+- **Consolidated VideoToolbox**: All stages use `ffmpeg_util.video_encoder_args()` — single source of truth
 - **Lazy MLX imports**: All `import mlx_*` inside stage methods; no crash without MLX
 - **HTTP fallback**: `FusionMLXClient` when MLX not available
 
