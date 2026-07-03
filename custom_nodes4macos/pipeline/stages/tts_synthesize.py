@@ -53,6 +53,15 @@ class TTSSynthesizeStage(Stage):
                 ctx.set_artifact(scene_id, "audio", out_path)
 
                 try:
+                    from ...ffmpeg_util import probe_duration
+                    dur = probe_duration(out_path)
+                    if dur > 0:
+                        scene["duration_seconds"] = dur
+                        logger.info("tts_synthesize scene %d audio duration=%.2fs", scene_id, dur)
+                except Exception:
+                    pass
+
+                try:
                     import mlx.core as mx
                     mx.clear_cache()
                 except ImportError:

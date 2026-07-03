@@ -186,7 +186,7 @@ class ImageGenerateStage(Stage):
         import base64
         from PIL import Image
         import io
-        img_bytes = base64.b64decode(images[0])
+        img_bytes = images[0] if isinstance(images[0], bytes) else base64.b64decode(images[0])
         img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
         img.save(out_path)
         logger.info("image_generate HTTP saved: %s (%d bytes)", out_path, os.path.getsize(out_path))

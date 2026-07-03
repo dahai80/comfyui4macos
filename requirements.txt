@@ -1,0 +1,14 @@
+torch
+mlx
+mlx-lm
+mlx-audio
+Pillow
+numpy
+scipy
+pyyaml
+httpx
+
+# Optional: PDF/EPUB support
+# pymupdf
+# ebooklib
+# beautifulsoup4

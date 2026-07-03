@@ -166,7 +166,16 @@ class ModelManager:
         )
         if os.path.isdir(flux_dir) and flux_dir not in sys.path:
             sys.path.insert(0, flux_dir)
-        from flux import FluxPipeline
+        try:
+            from flux import FluxPipeline
+        except ImportError:
+            try:
+                from mlx_flux import FluxPipeline
+            except ImportError:
+                raise ImportError(
+                    "FluxPipeline not found. Tried: flux.FluxPipeline, mlx_flux.FluxPipeline. "
+                    "Install mlx-flux or set FLUX_PIPELINE_DIR to mlx-examples/flux directory."
+                )
         return FluxPipeline(path)
 
     @staticmethod

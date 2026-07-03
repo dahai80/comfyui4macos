@@ -2,9 +2,21 @@
 
 MLX-native AI content production pipeline for macOS. One-click short drama, series, digital human, and puppet show — all running locally on Apple Silicon.
 
-## Architecture
+**梦工厂 Dream Factory** — 7 content types, one pipeline engine, zero cloud dependency.
 
-**Dream Factory (梦工厂)** — a pluggable pipeline engine inside ComfyUI:
+## Features
+
+| Type | Chinese | Duration | Key Feature |
+|------|---------|----------|-------------|
+| Short Drama | 短剧 | 2-10min | Static images + Ken Burns + TTS narration |
+| Ad Drama | 广告剧 | 1-5min | Brand placement + product showcase |
+| Puppet Show | 木偶剧 | 5-15min | Character consistency + scene animation |
+| Medium Video | 中短视频 | 30min | Checkpoint/resume + scene-level idempotency |
+| Series | 连续剧 | 30 episodes × 25min | PDF/EPUB story ingestion → auto-split → 30 episodes |
+| Digital Human | 数字人 | Variable | TTS + digital avatar + lip sync (fallback: static composite) |
+| Digital Human Live | 数字人直播 | Real-time | Placeholder for future livestream mode |
+
+## Architecture
 
 ```
 PipelineEngine
@@ -12,26 +24,14 @@ PipelineEngine
   │     ├── StoryIngestStage     — PDF/EPUB/TXT → chapter split → episode outline
   │     ├── PromptExpandStage    — story seed → structured scene JSON (LLM)
   │     ├── ImageGenerateStage   — visual_prompt → PNG (FluxPipeline MLX)
-  │     ├── TTSSynthesizeStage   — audio_script → WAV (mlx_audio)
-  │     ├── KenBurnsStage        — PNG + audio → mp4 clip (ffmpeg)
-  │     ├── AssembleStage        — clips → final mp4 (ffmpeg concat)
+  │     ├── TTSSynthesizeStage   — audio_script → WAV (mlx_audio) + auto duration
+  │     ├── KenBurnsStage        — PNG + audio → mp4 clip (ffmpeg + VideoToolbox)
+  │     ├── AssembleStage        — clips → final mp4 (ffmpeg concat + VideoToolbox)
   │     └── DigitalHumanRenderStage — avatar + audio → video (fallback: static composite)
   ├── ModelManager    — sequential model lifecycle (acquire → use → release + mx.clear_cache)
   ├── CheckpointManager — stage + scene-level checkpointing, resume from any point
   └── PipelineContext  — file-based artifact store (PNG/WAV/MP4 on disk)
 ```
-
-### Content Types (YAML templates, zero Python code to add new ones)
-
-| Type | Template | Duration | Key Feature |
-|------|----------|----------|-------------|
-| 短剧 Short Drama | `short_drama.yaml` | 1-10min | Static images + Ken Burns + TTS |
-| 广告剧 Ad Drama | `ad_drama.yaml` | 1-5min | Brand placement + product showcase |
-| 木偶剧 Puppet Show | `puppet_show.yaml` | 5-15min | Character consistency + scene animation |
-| 中短视频 Medium Video | `medium_video.yaml` | 30min | Checkpoint/resume + scene-level idempotency |
-| 连续剧 Series | `series.yaml` | 30 episodes × 25min | PDF story ingestion → auto-split → 30-episode series |
-| 数字人 Digital Human | `digital_human.yaml` | Variable | TTS + digital avatar + lip sync (stub) |
-| 数字人直播 Digital Human Live | `digital_human_live.yaml` | Real-time | Placeholder for future livestream |
 
 ### MLX Native Models
 
@@ -43,23 +43,40 @@ PipelineEngine
 
 **Sequential loading**: Peak GPU memory = 7.0G (Flux only), not 15.5G (all three).
 
-### Performance Optimizations
+### Content Type Templates
 
-- **VideoToolbox h264**: Auto-detected hardware encoding on Apple Silicon (consolidated in `ffmpeg_util.py`)
-- **MLX warmup**: `mx.zeros(1)` pre-initializes Metal before first model load
-- **Per-scene cache clear**: `mx.clear_cache()` after each image/TTS generation prevents memory accumulation
-- **Seed variation**: `flux_vary_seed` offsets seed per scene for diverse images
-- **Parallel Ken Burns**: Configurable worker threads (`ken_burns_workers: 2-3`)
-- **Ultrafast preset**: FFmpeg `-preset ultrafast` for clip rendering; VideoToolbox `-q:v 65` for hardware
-- **Configurable FFmpeg threads**: `FFMPEG_THREADS` env var for parallel worker control
-- **Auto memory budget**: Detects system RAM via `sysctl hw.memsize`, reserves 40% + 4G
-- **Scene-level checkpointing**: Resume mid-stage without re-processing completed scenes
-- **Scene-level idempotency**: Each stage checks `has_artifact_on_disk()` before generating
-- **Global scene_id for series**: `_renumber_scenes()` ensures unique scene_ids across episodes (no artifact key collisions)
-- **global_style propagation**: LLM output `global_style` field is extracted and passed to `ImageGenerateStage`
-- **Consolidated VideoToolbox**: All stages use `ffmpeg_util.video_encoder_args()` — single source of truth
-- **Lazy MLX imports**: All `import mlx_*` inside stage methods; no crash without MLX
-- **HTTP fallback**: `FusionMLXClient` when MLX not available
+Content types differ only by YAML config + prompt files. Zero Python code to add new types.
+
+```
+pipeline/templates/
+├── short_drama.yaml          # 短剧
+├── ad_drama.yaml             # 广告剧
+├── puppet_show.yaml          # 木偶剧
+├── medium_video.yaml         # 中短视频
+├── series.yaml               # 连续剧 (PDF→30集)
+├── digital_human.yaml        # 数字人
+└── digital_human_live.yaml   # 数字人直播 (placeholder)
+```
+
+## Performance Optimizations
+
+| Optimization | Details |
+|-------------|---------|
+| VideoToolbox h264 | Auto-detected hardware encoding on Apple Silicon |
+| MLX warmup | `mx.zeros(1)` pre-initializes Metal before first model load |
+| Per-scene cache clear | `mx.clear_cache()` after each image/TTS generation |
+| Seed variation | `flux_vary_seed` offsets seed per scene for diverse images |
+| Parallel Ken Burns | Configurable worker threads (`ken_burns_workers: 2-3`) |
+| Auto audio duration | TTS output probed for actual duration → accurate KenBurns clips |
+| Auto memory budget | Detects system RAM via `sysctl hw.memsize`, reserves 40% + 4G |
+| Scene-level checkpointing | Resume mid-stage without re-processing completed scenes |
+| Scene-level idempotency | Each stage checks `has_artifact_on_disk()` before generating |
+| Global scene_id for series | `_renumber_scenes()` ensures unique IDs across episodes |
+| global_style propagation | LLM output `global_style` extracted and passed to ImageGenerateStage |
+| Consolidated VideoToolbox | All stages use `ffmpeg_util.video_encoder_args()` — single source of truth |
+| Lazy MLX imports | All `import mlx_*` inside stage methods; no crash without MLX |
+| HTTP fallback | `FusionMLXClient` when MLX not available |
+| Robust FluxPipeline loading | Tries `flux.FluxPipeline` → `mlx_flux.FluxPipeline` with clear error message |
 
 ## Quick Start
 
@@ -68,6 +85,9 @@ PipelineEngine
 cd comfyui4macos
 python3 -m venv .venv && source .venv/bin/activate
 pip install torch mlx mlx-lm mlx-audio Pillow numpy scipy pyyaml httpx
+
+# Optional: PDF/EPUB support
+pip install pymupdf ebooklib beautifulsoup4
 
 # Run tests (all mock, no MLX required)
 PYTHONPATH=. python -m pytest custom_nodes4macos/tests/ -v
@@ -79,15 +99,43 @@ engine = PipelineEngine()
 result = engine.run('short_drama', story_seed='深夜赶路遇白衣女子')
 print(result)
 "
+
+# Series from PDF
+PYTHONPATH=. python -c "
+from custom_nodes4macos.pipeline import PipelineEngine
+engine = PipelineEngine()
+result = engine.run('series', story_file='/path/to/novel.pdf', episode_count=30)
+print(result)
+"
 ```
 
 ## ComfyUI Integration
 
 Single node `FusionMLXDreamFactory` encapsulates the entire pipeline:
 
-- **Input**: `content_type`, `story_seed`, `story_file`, `episode_count`, `avatar_reference`, config overrides
+- **Input**: `content_type` (7 types), `story_seed`, `story_file`, `episode_count`, `avatar_reference`, `config_overrides`
 - **Output**: `video_path`, `scenes_json` (with progress tracking)
 - **Resume**: Pass `resume_job_id` to continue from checkpoint
+
+### Example Workflow JSON
+
+```json
+{
+    "1": {
+        "class_type": "FusionMLXDreamFactory",
+        "inputs": {
+            "content_type": "short_drama",
+            "story_seed": "深夜赶路遇白衣女子，荒村古寺钟声起",
+            "scene_count": 8,
+            "style_preset": "水墨悬疑"
+        }
+    }
+}
+```
+
+### Web Panel
+
+Open the Dream Factory panel from ComfyUI → click "🎬 打开梦工厂" button on the node, or navigate to `/extensions/custom_nodes4macos/dream_factory.html`.
 
 ## File Structure
 
@@ -95,29 +143,29 @@ Single node `FusionMLXDreamFactory` encapsulates the entire pipeline:
 custom_nodes4macos/
 ├── __init__.py                  # Register FusionMLXDreamFactory + 5 legacy nodes
 ├── fusion_client.py             # HTTP bridge (legacy + fallback)
-├── ffmpeg_util.py               # Shared ffmpeg utilities
+├── ffmpeg_util.py               # Shared ffmpeg utilities (VideoToolbox auto-detect)
 ├── nodes/
 │   ├── dream_factory.py         # FusionMLXDreamFactory ComfyUI adapter
 │   ├── prompt_expand.py         # Legacy HTTP node
 │   ├── flux_image.py            # Legacy HTTP node
 │   ├── horror_tts.py            # Legacy HTTP node
-│   ├── ken_burns.py             # Legacy HTTP node
-│   └── assemble.py              # Legacy HTTP node
+│   ├── ken_burns.py             # Legacy HTTP node (VideoToolbox)
+│   └── assemble.py              # Legacy HTTP node (VideoToolbox)
 ├── pipeline/
-│   ├── engine.py                # PipelineEngine
-│   ├── context.py               # PipelineContext
+│   ├── engine.py                # PipelineEngine (template merge + stage orchestration)
+│   ├── context.py               # PipelineContext (file-based artifact store)
 │   ├── stage.py                 # Stage ABC + StageInfo
-│   ├── model_manager.py         # ModelManager + ModelHandle
-│   ├── checkpoint.py            # CheckpointManager
-│   ├── result.py                # PipelineResult
+│   ├── model_manager.py         # ModelManager + ModelHandle + ModelMode
+│   ├── checkpoint.py            # CheckpointManager + CheckpointData
+│   ├── result.py                # PipelineResult dataclass
 │   ├── stages/
-│   │   ├── story_ingest.py      # PDF/EPUB/TXT ingestion
-│   │   ├── prompt_expand.py     # LLM prompt expansion
-│   │   ├── image_generate.py    # Flux image generation
-│   │   ├── tts_synthesize.py    # TTS synthesis
-│   │   ├── ken_burns.py         # Ken Burns + VideoToolbox
+│   │   ├── story_ingest.py      # PDF/EPUB/TXT ingestion + chapter splitting
+│   │   ├── prompt_expand.py     # LLM prompt expansion (multi-episode support)
+│   │   ├── image_generate.py    # Flux image generation (per-scene cache clear)
+│   │   ├── tts_synthesize.py    # TTS synthesis (auto audio duration)
+│   │   ├── ken_burns.py         # Ken Burns + VideoToolbox (parallel render)
 │   │   ├── assemble.py          # Clip concatenation + VideoToolbox
-│   │   └── digital_human_render.py  # Digital human (fallback)
+│   │   └── digital_human_render.py  # Digital human (static avatar fallback)
 │   └── templates/
 │       ├── short_drama.yaml
 │       ├── ad_drama.yaml
@@ -133,29 +181,21 @@ custom_nodes4macos/
 │   ├── medium_director.md
 │   ├── series_director.md
 │   └── digital_human_director.md
+├── web/
+│   ├── dream_factory.html       # Dream Factory web panel
+│   └── dream_factory.js         # ComfyUI JS extension
+├── workflows/
+│   ├── dream_factory_short_drama.json
+│   └── dream_factory_series_pdf.json
 └── tests/
     ├── test_pipeline_engine.py
     ├── test_model_manager.py
     ├── test_checkpoint.py
     ├── test_stages.py
     ├── test_new_stages.py
-	    ├── test_performance_and_fixes.py
+    ├── test_performance_and_fixes.py
     └── ... (legacy node tests)
 ```
-
-## Next.js UI
-
-The Dream Factory panel in the openclaw-mission-macos dashboard:
-
-- Content type selector (7 types)
-- Story seed input + story file upload (PDF/EPUB/TXT for series mode)
-- Digital human avatar reference input
-- Parameter panel (scene count, style preset, etc.)
-- Real-time progress with stage + scene tracking
-- Video player for completed output
-- Job history with resume support
-
-API routes: `/api/comfyui/dream-factory/{run,status,resume,jobs,upload}`
 
 ## Performance (M5 Max 128GB)
 
@@ -167,7 +207,7 @@ API routes: `/api/comfyui/dream-factory/{run,status,resume,jobs,upload}`
 | D: FFmpeg | None | 0G | ~30s (VideoToolbox) |
 | **Total** | | **7.0G** | **~7-11min** |
 
-30-min series (40 scenes): ~50-85min GPU time, checkpoint/resume essential.
+30-min series (40 scenes/episode × 30 episodes): ~50-85min GPU time per episode, checkpoint/resume essential.
 
 ## License
 

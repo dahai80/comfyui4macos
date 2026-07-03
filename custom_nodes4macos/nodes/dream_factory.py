@@ -39,6 +39,7 @@ class FusionMLXDreamFactory:
     RETURN_NAMES = ("video_path", "scenes_json")
     FUNCTION = "produce"
     CATEGORY = "FusionMLX/DreamFactory"
+    OUTPUT_NODE = True
 
     def produce(
         self,
