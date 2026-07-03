@@ -1,0 +1,29 @@
+name: medium_video
+content_type: medium_video
+description: "中短视频 (30min)，检查点/续跑 + 一致性检查"
+stages: [prompt_expand, image_generate, tts_synthesize, ken_burns, assemble]
+
+defaults:
+  scene_count: 40
+  style_preset: "电影叙事"
+  flux_steps: 4
+  flux_width: 1024
+  flux_height: 1024
+  ken_burns_preset: "random"
+  ken_burns_width: 1080
+  ken_burns_height: 1920
+  ken_burns_fps: 30
+  assemble_transition: "fade"
+  tts_instructions: "沉稳的纪录片旁白语气；语速适中，叙事连贯，情绪随内容起伏"
+  tts_speed: 0.95
+  checkpoint_every_n_scenes: 5
+  consistency_check: true
+
+prompts:
+  system_prompt_file: "medium_director.md"
+
+style_presets:
+  电影叙事: "cinematic storytelling, dramatic lighting, shallow depth of field, film grain, 8k"
+  纪实风格: "documentary style, natural lighting, realistic textures, handheld camera feel, 8k"
+  黑白映像: "black and white film noir, high contrast, dramatic shadows, silver gelatin, 8k"
+  油画质感: "oil painting aesthetic, rich impasto textures, Rembrandt lighting, baroque, 8k"

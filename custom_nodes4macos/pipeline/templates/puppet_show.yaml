@@ -1,0 +1,28 @@
+name: puppet_show
+content_type: puppet_show
+description: "木偶剧，角色一致性 + 场景动画，MVP: 同 pipeline + 角色参考"
+stages: [prompt_expand, image_generate, tts_synthesize, ken_burns, assemble]
+
+defaults:
+  scene_count: 10
+  style_preset: "木偶定格"
+  flux_steps: 6
+  flux_width: 1024
+  flux_height: 1024
+  ken_burns_preset: "zoom-in"
+  ken_burns_width: 1080
+  ken_burns_height: 1920
+  ken_burns_fps: 24
+  assemble_transition: "fade"
+  tts_instructions: "生动活泼的木偶剧旁白语气；语速明快，角色声音有辨识度"
+  tts_speed: 1.1
+  character_reference_dir: ""
+
+prompts:
+  system_prompt_file: "puppet_director.md"
+
+style_presets:
+  木偶定格: "stop-motion puppet animation style, felt and fabric textures, warm stage lighting, handcrafted feel, 8k"
+  折纸世界: "origami paper craft world, folded paper characters, pastel colors, soft shadows, 8k"
+  泥塑卡通: "claymation style, clay figurines, bright saturated colors, studio lighting, 8k"
+  皮影戏: "Chinese shadow puppetry, backlit translucent figures, golden glow, traditional, 8k"

@@ -1,0 +1,23 @@
+name: series_drama
+content_type: series
+description: "连续剧：PDF故事集 → 30集分集大纲 → 逐集生成"
+stages: [story_ingest, prompt_expand, image_generate, tts_synthesize, ken_burns, assemble]
+defaults:
+  episode_count: 30
+  episode_duration_min: 25
+  scenes_per_episode: 40
+  scene_count: 8
+  style_preset: "电影叙事"
+  flux_steps: 4
+  tts_instructions: "沉稳、有感染力的专业旁白，带情感起伏"
+  ken_burns_preset: "random"
+  ken_burns_workers: 3
+  checkpoint_every_n_scenes: 5
+  consistency_check: true
+prompts:
+  system_prompt: "prompts/series_director.md"
+style_presets:
+  电影叙事: "cinematic storytelling, warm golden light, shallow depth of field, film grain, 8k"
+  纪实风格: "documentary style, natural lighting, handheld camera feel, desaturated, 4k"
+  黑白映像: "black and white film, high contrast, dramatic shadows, noir aesthetic, 8k"
+  油画质感: "oil painting texture, rich impasto, warm palette, baroque lighting, 8k"

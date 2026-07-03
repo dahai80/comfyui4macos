@@ -1,0 +1,17 @@
+name: digital_human
+content_type: digital_human
+description: "数字人：TTS 语音 + 数字人形象 + 口型同步（开发中）"
+stages: [prompt_expand, tts_synthesize, digital_human_render, assemble]
+defaults:
+  scene_count: 8
+  style_preset: "写实人像"
+  tts_instructions: "自然、流畅的中文播报语气"
+  avatar_reference: ""
+  lip_sync_model: ""
+prompts:
+  system_prompt: "prompts/digital_human_director.md"
+style_presets:
+  写实人像: "photorealistic human portrait, studio lighting, neutral background, 8k"
+  卡通形象: "3D cartoon character, vibrant colors, expressive face, clean background"
+  国风数字人: "Chinese traditional style digital human, ink wash background, elegant"
+  赛博朋克: "cyberpunk digital avatar, neon accents, holographic UI overlay"

@@ -1,0 +1,28 @@
+name: horror_short_drama
+content_type: short_drama
+description: "1-10min 短剧，静态图 + Ken Burns + TTS"
+stages: [prompt_expand, image_generate, tts_synthesize, ken_burns, assemble]
+
+defaults:
+  scene_count: 8
+  style_preset: "水墨悬疑"
+  flux_steps: 4
+  flux_width: 1024
+  flux_height: 1024
+  ken_burns_preset: "random"
+  ken_burns_width: 1080
+  ken_burns_height: 1920
+  ken_burns_fps: 30
+  ken_burns_workers: 2
+  assemble_transition: "fade"
+  tts_instructions: "低沉、压抑、略带颤抖的中式恐怖旁白语气；语速偏慢，停顿处留白以制造悬念"
+  tts_speed: 0.9
+
+prompts:
+  system_prompt_file: "horror_director.md"
+
+style_presets:
+  水墨悬疑: "Chinese ink-wash dark fantasy, muted desaturated tones, misty mountains, cinematic, 8k"
+  纸扎阴森: "paper-crafted eerie folk horror, dim candlelight, cold palette, film grain, 8k"
+  暗黑道观: "dark Taoist temple interior, incense smoke, chiaroscuro, blood-red accents, 8k"
+  佛寺夜寂: "abandoned Buddhist shrine, moonlit, cold blue, silent dread, volumetric light, 8k"

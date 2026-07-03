@@ -1,0 +1,27 @@
+name: ad_drama
+content_type: ad_drama
+description: "1-5min 广告剧，品牌植入 + 产品展示 + Ken Burns + TTS"
+stages: [prompt_expand, image_generate, tts_synthesize, ken_burns, assemble]
+
+defaults:
+  scene_count: 5
+  style_preset: "商业质感"
+  flux_steps: 4
+  flux_width: 1024
+  flux_height: 1024
+  ken_burns_preset: "zoom-in"
+  ken_burns_width: 1080
+  ken_burns_height: 1920
+  ken_burns_fps: 30
+  assemble_transition: "fade"
+  tts_instructions: "专业、自信、富有感染力的广告旁白语气；语速适中，关键卖点加强调"
+  tts_speed: 1.0
+
+prompts:
+  system_prompt_file: "ad_director.md"
+
+style_presets:
+  商业质感: "commercial product photography, clean studio lighting, premium feel, warm tones, 8k"
+  科技极简: "minimalist tech product, dark background, neon accent lighting, futuristic, 8k"
+  生活美学: "lifestyle product in natural setting, soft daylight, warm bokeh, editorial, 8k"
+  国潮风格: "Chinese modern aesthetic, traditional elements with contemporary twist, rich colors, 8k"

@@ -1,0 +1,141 @@
+from __future__ import annotations
+
+import logging
+import os
+
+from ..stage import Stage, StageInfo
+
+logger = logging.getLogger("custom_nodes4macos.pipeline.stages.tts_synthesize")
+
+
+class TTSSynthesizeStage(Stage):
+
+    @classmethod
+    def info(cls) -> StageInfo:
+        return StageInfo(
+            name="tts_synthesize",
+            description="audio_script → WAV (mlx_audio native)",
+            model_requirements=["tts"],
+            memory_estimate_gb=2.9,
+            input_kinds=["scenes"],
+            output_kinds=["audio"],
+        )
+
+    def process(self, ctx, model_manager) -> None:
+        if self._skip_if_completed(ctx):
+            return
+
+        voice = ctx.config.get("tts_voice", "")
+        instructions = ctx.config.get("tts_instructions", "低沉、压抑、略带颤抖的旁白语气；语速偏慢，停顿处留白以制造悬念")
+        speed = ctx.config.get("tts_speed", 1.0)
+
+        from ..checkpoint import CheckpointManager
+        checkpoint = CheckpointManager(ctx.job_dir)
+
+        with model_manager.acquire("tts") as handle:
+            tts_model = handle.model
+            for i, scene in enumerate(ctx.scenes):
+                scene_id = scene.get("scene_id", i + 1)
+                if ctx.has_artifact_on_disk(scene_id, "audio"):
+                    logger.info("tts_synthesize scene %d skipped (exists)", scene_id)
+                    continue
+
+                audio_script = scene.get("audio_script", "")
+                if not audio_script or not audio_script.strip():
+                    logger.warning("tts_synthesize scene %d: no audio_script, skip", scene_id)
+                    continue
+
+                out_path = ctx.artifact_path(scene_id, "audio")
+
+                self._synthesize(
+                    tts_model, audio_script, voice, instructions, speed, out_path,
+                )
+                ctx.set_artifact(scene_id, "audio", out_path)
+                ctx.update_progress("tts_synthesize", i + 1, len(ctx.scenes))
+
+                if ctx.should_checkpoint_scene(i + 1):
+                    checkpoint.save(ctx)
+                    logger.info("scene-level checkpoint saved at scene %d", scene_id)
+
+    @staticmethod
+    def _synthesize(
+        model,
+        text: str,
+        voice: str,
+        instructions: str,
+        speed: float,
+        out_path: str,
+    ) -> None:
+        try:
+            TTSSynthesizeStage._synthesize_mlx(
+                model, text, voice, instructions, speed, out_path,
+            )
+        except ImportError:
+            logger.warning("mlx_audio not available, falling back to HTTP")
+            TTSSynthesizeStage._synthesize_http(
+                text, voice, instructions, speed, out_path,
+            )
+
+    @staticmethod
+    def _synthesize_mlx(
+        model,
+        text: str,
+        voice: str,
+        instructions: str,
+        speed: float,
+        out_path: str,
+    ) -> None:
+        from mlx_audio.tts import generate as tts_generate
+        import mlx.core as mx
+
+        logger.info("tts_synthesize MLX text_len=%d speed=%.2f", len(text), speed)
+        audio = tts_generate(
+            model,
+            text,
+            voice=voice or None,
+            speed=speed,
+        )
+
+        if hasattr(audio, "save"):
+            audio.save(out_path)
+        else:
+            import numpy as np
+            import wave
+            arr = mx.array_to_numpy(audio)
+            if arr.dtype in (mx.float16, mx.float32):
+                arr = (arr * 32767).clip(-32767, 32767).astype("int16")
+            with wave.open(out_path, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(24000)
+                wf.writeframes(arr.tobytes())
+
+        logger.info("tts_synthesize MLX saved: %s (%d bytes)", out_path, os.path.getsize(out_path))
+
+    @staticmethod
+    def _synthesize_http(
+        text: str,
+        voice: str,
+        instructions: str,
+        speed: float,
+        out_path: str,
+    ) -> None:
+        from ...fusion_client import FusionMLXClient
+
+        logger.info("tts_synthesize HTTP text_len=%d", len(text))
+        with FusionMLXClient() as client:
+            if not client.health():
+                raise RuntimeError("fusion-mlx unreachable (HTTP fallback)")
+            audio_bytes = client.synthesize_speech(
+                text=text,
+                voice=voice or None,
+                instructions=instructions or None,
+                speed=speed,
+                response_format="wav",
+            )
+        if not audio_bytes:
+            raise RuntimeError("synthesize_speech returned empty")
+
+        with open(out_path, "wb") as f:
+            f.write(audio_bytes)
+        logger.info("tts_synthesize HTTP saved: %s (%d bytes)", out_path, os.path.getsize(out_path))
