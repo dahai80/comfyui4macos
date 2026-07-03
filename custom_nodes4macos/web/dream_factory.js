@@ -3,13 +3,6 @@ import { app } from "../../scripts/app.js";
 app.registerExtension({
     name: "custom_nodes4macos.DreamFactory",
 
-    async setup() {
-        const orig = app.loadGraphData;
-        app.loadGraphData = function () {
-            return orig.apply(this, arguments);
-        };
-    },
-
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
         if (nodeData.name === "FusionMLXDreamFactory") {
             const origOnNodeCreated = nodeType.prototype.onNodeCreated;

@@ -35,7 +35,7 @@ video { width: 100%; border-radius: 8px; }
     <div class="card">
         <label>内容类型</label>
         <select id="contentType">
-            <option value="short_drama">短剧 Short Drama (1-10min)</option>
+            <option value="short_drama">短剧 Short Drama (2-3min)</option>
             <option value="ad_drama">广告剧 Ad Drama (1-5min)</option>
             <option value="puppet_show">木偶剧 Puppet Show (5-15min)</option>
             <option value="medium_video">中短视频 Medium Video (30min)</option>
@@ -48,12 +48,14 @@ video { width: 100%; border-radius: 8px; }
         <label>故事文件 (PDF/EPUB/TXT, 连续剧模式)</label>
         <input id="storyFile" type="text" placeholder="/path/to/story.pdf">
         <div style="display:flex;gap:12px">
-            <div style="flex:1"><label>分镜数</label><input id="sceneCount" type="number" value="8" min="1" max="100"></div>
+            <div style="flex:1"><label>分镜数</label><input id="sceneCount" type="number" value="16" min="1" max="200"></div>
             <div style="flex:1"><label>画风预设</label><input id="stylePreset" type="text" placeholder="水墨悬疑"></div>
             <div style="flex:1"><label>集数(连续剧)</label><input id="episodeCount" type="number" value="30" min="1" max="200"></div>
         </div>
         <label>数字人头像路径</label>
         <input id="avatarReference" type="text" placeholder="/path/to/avatar.png">
+        <label>续跑任务ID (留空新建)</label>
+        <input id="resumeJobId" type="text" placeholder="20260704_abc123">
         <button class="btn" id="runBtn" onclick="runPipeline()">🎬 生成视频</button>
     </div>
     <div class="progress" id="progressArea" style="display:none">
@@ -63,10 +65,10 @@ video { width: 100%; border-radius: 8px; }
     <div class="result card" id="resultArea">
         <label>生成结果</label>
         <video id="resultVideo" controls></video>
-    </div>
-    <div class="job-list card" id="jobList">
-        <label>历史任务</label>
-        <div id="jobItems"></div>
+        <div style="margin-top:8px">
+            <label>输出路径</label>
+            <input id="resultPath" type="text" readonly style="background:#0a1628">
+        </div>
     </div>
 </div>
 <script>
@@ -76,6 +78,8 @@ async function runPipeline() {
     btn.disabled = true;
     btn.textContent = '⏳ 生成中…';
     document.getElementById('progressArea').style.display = 'block';
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('progressText').textContent = '准备中…';
     const payload = {
         content_type: document.getElementById('contentType').value,
         story_seed: document.getElementById('storySeed').value,
@@ -85,6 +89,10 @@ async function runPipeline() {
         episode_count: parseInt(document.getElementById('episodeCount').value) || 30,
         avatar_reference: document.getElementById('avatarReference').value,
     };
+    const resumeId = document.getElementById('resumeJobId').value.trim();
+    if (resumeId) {
+        payload.resume_job_id = resumeId;
+    }
     try {
         const resp = await fetch(`${API}/prompt`, {
             method: 'POST',
@@ -125,10 +133,21 @@ async function pollStatus(promptId) {
                     const outputs = status.outputs;
                     if (outputs && outputs['1']) {
                         const videoPath = outputs['1'].video_path;
+                        const scenesJson = outputs['1'].scenes_json;
                         if (videoPath) {
                             const vid = document.getElementById('resultVideo');
-                            vid.src = `/view?filename=${encodeURIComponent(videoPath.split('/').pop())}`;
+                            const filename = videoPath.split('/').pop();
+                            vid.src = `/view?filename=${encodeURIComponent(filename)}&type=output`;
+                            document.getElementById('resultPath').value = videoPath;
                             document.getElementById('resultArea').style.display = 'block';
+                        } else if (scenesJson) {
+                            try {
+                                const parsed = JSON.parse(scenesJson);
+                                if (parsed.job_id) {
+                                    document.getElementById('resumeJobId').value = parsed.job_id;
+                                    text.textContent = '✅ 部分完成 (job: ' + parsed.job_id + ')';
+                                }
+                            } catch(e2) {}
                         }
                     }
                     document.getElementById('runBtn').disabled = false;
@@ -145,21 +164,6 @@ async function pollStatus(promptId) {
         } catch(e) {}
     }, 3000);
 }
-async function loadJobs() {
-    try {
-        const resp = await fetch(`${API}/api/comfyui/dream-factory/jobs`);
-        const data = await resp.json();
-        const container = document.getElementById('jobItems');
-        container.innerHTML = '';
-        (data.jobs || []).forEach(job => {
-            const div = document.createElement('div');
-            div.className = 'job-item';
-            div.innerHTML = `<div><div class="title">${job.job_id}</div><div class="stages">${job.content_type} — ${job.completed_stages.join(', ')}</div></div>`;
-            container.appendChild(div);
-        });
-    } catch(e) {}
-}
-loadJobs();
 </script>
 </body>
 </html>

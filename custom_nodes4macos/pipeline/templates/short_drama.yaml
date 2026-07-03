@@ -4,7 +4,7 @@ description: "1-10min 短剧，静态图 + Ken Burns + TTS"
 stages: [prompt_expand, image_generate, tts_synthesize, ken_burns, assemble]
 
 defaults:
-  scene_count: 8
+  scene_count: 16
   style_preset: "水墨悬疑"
   flux_steps: 4
   flux_width: 1024

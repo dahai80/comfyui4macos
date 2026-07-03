@@ -8,7 +8,7 @@ MLX-native AI content production pipeline for macOS. One-click short drama, seri
 
 | Type | Chinese | Duration | Key Feature |
 |------|---------|----------|-------------|
-| Short Drama | 短剧 | 2-10min | Static images + Ken Burns + TTS narration |
+| Short Drama | 短剧 | 2-3min | Static images + Ken Burns + TTS narration |
 | Ad Drama | 广告剧 | 1-5min | Brand placement + product showcase |
 | Puppet Show | 木偶剧 | 5-15min | Character consistency + scene animation |
 | Medium Video | 中短视频 | 30min | Checkpoint/resume + scene-level idempotency |

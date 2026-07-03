@@ -5,7 +5,7 @@ stages: [story_ingest, prompt_expand, image_generate, tts_synthesize, ken_burns,
 defaults:
   episode_count: 30
   episode_duration_min: 25
-  scenes_per_episode: 40
+  scenes_per_episode: 80
   scene_count: 8
   style_preset: "电影叙事"
   flux_steps: 4

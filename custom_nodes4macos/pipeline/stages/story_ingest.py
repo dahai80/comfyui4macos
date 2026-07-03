@@ -166,8 +166,14 @@ class StoryIngestStage(Stage):
         self, model, tokenizer, chapters, episode_count,
         episode_duration_min, ctx,
     ) -> str:
+        max_chapters = 60
+        if len(chapters) > max_chapters:
+            logger.warning(
+                "story_ingest: %d chapters > %d cap, chapters after %d will be omitted from outline",
+                len(chapters), max_chapters, max_chapters,
+            )
         chapters_summary = ""
-        for ch in chapters[:60]:
+        for ch in chapters[:max_chapters]:
             chapters_summary += (
                 f"第{ch['chapter_id']}章「{ch['title']}」"
                 f"（{len(ch['text'])}字）\n"

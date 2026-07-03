@@ -65,6 +65,11 @@ class FusionMLXClient:
                     logger.warning("5xx retry %d/%d body=%r", attempt + 1, self.retries, resp.text[:200])
                     time.sleep(0.5 * (attempt + 1))
                     continue
+                if resp.status_code in (429, 408) and attempt < self.retries:
+                    wait = float(resp.headers.get("retry-after", "2"))
+                    logger.warning("%d retry %d/%d wait=%.1fs", resp.status_code, attempt + 1, self.retries, wait)
+                    time.sleep(min(wait, 10.0))
+                    continue
                 return resp
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 last_exc = exc

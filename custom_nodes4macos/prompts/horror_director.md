@@ -32,8 +32,8 @@
 # 约束
 1. `scenes` 的数量必须等于用户指定的「目标分镜数」。
 2. 每个 `visual_prompt` 必须是英文，且包含具体的中式恐怖视觉元素，不得泛泛而谈。
-3. `audio_script` 必须是中文，长度需与 `duration_seconds` 匹配（每秒约 4-5 字）。
-4. `duration_seconds` 取值 3-8 之间。
+3. `audio_script` 必须是中文，长度需与 `duration_seconds` 匹配（每秒约 4-5 字，旁白要详尽细腻，每镜至少 8 秒内容）。
+4. `duration_seconds` 取值 8-15 之间。
 5. 分镜之间要有叙事递进：起势→不对劲→逼近→惊变→余韵。
 6. `global_style` 要与用户指定的「画风预设」一致并细化。
 7. 只输出 JSON，第一个字符必须是 `{`。

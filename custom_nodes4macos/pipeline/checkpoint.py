@@ -58,9 +58,19 @@ class CheckpointManager:
         try:
             with open(self._path, "r", encoding="utf-8") as f:
                 raw = json.load(f)
-            return CheckpointData(**raw)
-        except Exception as exc:
-            logger.error("checkpoint load failed: %s", exc)
+            if not isinstance(raw, dict):
+                raise ValueError(f"checkpoint root is {type(raw).__name__}, expected dict")
+            required_fields = {"job_id"}
+            missing = required_fields - set(raw.keys())
+            if missing:
+                logger.warning("checkpoint missing fields: %s", missing)
+            safe = {k: v for k, v in raw.items() if k in CheckpointData.__dataclass_fields__}
+            return CheckpointData(**safe)
+        except (json.JSONDecodeError, ValueError) as exc:
+            logger.error("checkpoint load failed (corrupt): %s", exc)
+            return None
+        except TypeError as exc:
+            logger.error("checkpoint load failed (schema mismatch): %s", exc)
             return None
 
     def restore_context(self, ctx: PipelineContext) -> bool:
