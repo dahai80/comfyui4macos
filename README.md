@@ -12,7 +12,7 @@ MLX-native AI content production pipeline for macOS. One-click short drama, seri
 | Ad Drama | 广告剧 | 1-5min | Brand placement + product showcase |
 | Puppet Show | 木偶剧 | 5-15min | Character consistency + scene animation |
 | Medium Video | 中短视频 | 30min | Checkpoint/resume + scene-level idempotency |
-| Series | 连续剧 | 30 episodes × 25min | PDF/EPUB story ingestion → auto-split → 30 episodes |
+| Series | 连续剧 | 30 episodes × 30min | PDF/EPUB story ingestion → auto-split → 30 episodes |
 | Digital Human | 数字人 | Variable | TTS + digital avatar + lip sync (fallback: static composite) |
 | Digital Human Live | 数字人直播 | Real-time | Placeholder for future livestream mode |
 
@@ -207,7 +207,7 @@ custom_nodes4macos/
 | D: FFmpeg | None | 0G | ~30s (VideoToolbox) |
 | **Total** | | **7.0G** | **~7-11min** |
 
-30-min series (40 scenes/episode × 30 episodes): ~50-85min GPU time per episode, checkpoint/resume essential.
+30-min series (80 scenes/episode × 30 episodes): ~50-85min GPU time per episode, checkpoint/resume essential.
 
 ## License
 

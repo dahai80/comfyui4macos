@@ -4,7 +4,7 @@ description: "连续剧：PDF故事集 → 30集分集大纲 → 逐集生成"
 stages: [story_ingest, prompt_expand, image_generate, tts_synthesize, ken_burns, assemble]
 defaults:
   episode_count: 30
-  episode_duration_min: 25
+  episode_duration_min: 30
   scenes_per_episode: 80
   scene_count: 8
   style_preset: "电影叙事"
