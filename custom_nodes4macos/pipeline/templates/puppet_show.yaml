@@ -6,9 +6,10 @@ stages: [prompt_expand, image_generate, tts_synthesize, ken_burns, assemble]
 defaults:
   scene_count: 10
   style_preset: "木偶定格"
-  flux_steps: 6
+  flux_steps: 10
   flux_width: 1024
   flux_height: 1024
+  flux_guidance: 4.0
   ken_burns_preset: "zoom-in"
   ken_burns_width: 1080
   ken_burns_height: 1920

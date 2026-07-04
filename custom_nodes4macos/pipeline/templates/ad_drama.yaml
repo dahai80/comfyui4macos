@@ -6,9 +6,10 @@ stages: [prompt_expand, image_generate, tts_synthesize, ken_burns, assemble]
 defaults:
   scene_count: 5
   style_preset: "商业质感"
-  flux_steps: 4
+  flux_steps: 8
   flux_width: 1024
   flux_height: 1024
+  flux_guidance: 4.0
   ken_burns_preset: "zoom-in"
   ken_burns_width: 1080
   ken_burns_height: 1920

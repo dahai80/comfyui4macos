@@ -8,7 +8,10 @@ defaults:
   scenes_per_episode: 80
   scene_count: 8
   style_preset: "电影叙事"
-  flux_steps: 4
+  flux_steps: 8
+  flux_width: 1024
+  flux_height: 1024
+  flux_guidance: 4.0
   tts_instructions: "沉稳、有感染力的专业旁白，带情感起伏"
   ken_burns_preset: "random"
   ken_burns_workers: 3
