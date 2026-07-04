@@ -190,9 +190,11 @@ class PipelineEngine:
                 continue
 
             logger.info(
-                "stage %s starting (memory_est=%.1fG models=%s)",
+                "stage %s starting (memory_est=%.1fG models=%s model_usage=%.1fG)",
                 info.name, info.memory_estimate_gb, info.model_requirements,
+                model_mgr.current_usage_gb,
             )
+            t_stage = time.time()
             try:
                 stage.process(ctx, model_mgr)
             except Exception as exc:
@@ -200,10 +202,15 @@ class PipelineEngine:
                 checkpoint.save(ctx)
                 model_mgr.shutdown()
                 raise
+            t_stage_elapsed = time.time() - t_stage
 
             ctx.completed_stages.append(info.name)
             checkpoint.save(ctx)
-            logger.info("stage %s completed, checkpoint saved", info.name)
+            logger.info(
+                "stage %s completed in %.1fs (%.1fmin) model_usage=%.1fG checkpoint saved",
+                info.name, t_stage_elapsed, t_stage_elapsed / 60,
+                model_mgr.current_usage_gb,
+            )
 
         model_mgr.shutdown()
 
