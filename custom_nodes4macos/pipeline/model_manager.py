@@ -8,6 +8,28 @@ from typing import Any
 
 logger = logging.getLogger("custom_nodes4macos.pipeline.model_manager")
 
+_HF_CACHE_ROOT = os.path.expanduser("~/.cache/huggingface/hub")
+
+
+def _resolve_local_path(repo_id: str) -> str | None:
+    if os.path.isdir(repo_id):
+        return repo_id
+    org_name = repo_id.replace("/", "--")
+    model_dir = os.path.join(_HF_CACHE_ROOT, f"models--{org_name}")
+    if not os.path.isdir(model_dir):
+        return None
+    snap_dir = os.path.join(model_dir, "snapshots")
+    if not os.path.isdir(snap_dir):
+        return None
+    commits = sorted(os.listdir(snap_dir))
+    if not commits:
+        return None
+    latest = os.path.join(snap_dir, commits[-1])
+    if os.path.isdir(latest):
+        logger.info("resolved %s -> %s", repo_id, latest)
+        return latest
+    return None
+
 
 class ModelMode(Enum):
     SEQUENTIAL = "sequential"
@@ -122,7 +144,8 @@ class ModelManager:
                     f"({self._current_usage:.1f}G used / {self._memory_budget:.1f}G max)"
                 )
 
-        path = self._model_overrides.get(name, reg["path"])
+        repo_id_or_path = self._model_overrides.get(name, reg["path"])
+        path = _resolve_local_path(repo_id_or_path) or repo_id_or_path
         loader = getattr(self, reg["loader"])
         logger.info("loading model %s from %s ...", name, path)
         model = loader(path)
@@ -159,29 +182,25 @@ class ModelManager:
 
     @staticmethod
     def _load_flux(path: str):
-        import sys
-        flux_dir = os.environ.get(
-            "FLUX_PIPELINE_DIR",
-            os.path.expanduser("~/claude-home/mlx-examples/flux"),
-        )
-        if os.path.isdir(flux_dir) and flux_dir not in sys.path:
-            sys.path.insert(0, flux_dir)
         try:
-            from flux import FluxPipeline
+            from mflux.models.flux.variants.txt2img.flux import Flux1
+            from mflux.models.common.config.model_config import ModelConfig
         except ImportError:
-            try:
-                from mlx_flux import FluxPipeline
-            except ImportError:
-                raise ImportError(
-                    "FluxPipeline not found. Tried: flux.FluxPipeline, mlx_flux.FluxPipeline. "
-                    "Install mlx-flux or set FLUX_PIPELINE_DIR to mlx-examples/flux directory."
-                )
-        return FluxPipeline(path)
+            raise ImportError(
+                "mflux not installed. Run: pip install mflux"
+            )
+        return Flux1(
+            quantize=4,
+            model_path=path,
+            model_config=ModelConfig.dev(),
+        )
 
     @staticmethod
     def _load_tts(path: str):
         from mlx_audio.tts.utils import fetch_from_hub
-        return fetch_from_hub(path)
+        model, config = fetch_from_hub(path)
+        model._tts_config = config
+        return model
 
     @staticmethod
     def _detect_memory_budget() -> float:

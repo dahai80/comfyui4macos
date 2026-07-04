@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 from ..stage import Stage, StageInfo
@@ -136,6 +137,10 @@ class PromptExpandStage(Stage):
                 model, tokenizer = handle.model
                 content = self._generate(model, tokenizer, messages, temperature)
 
+            raw_llm_path = os.path.join(ctx.job_dir, f"_prompt_expand_ep{ep_idx+1}_raw.txt")
+            with open(raw_llm_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            logger.info("prompt_expand ep%d raw output: %s (%d chars)", ep_idx+1, raw_llm_path, len(content))
             parsed = self._parse_and_validate_raw(content)
             scenes = parsed.get("scenes", [])
             for scene in scenes:
@@ -209,6 +214,7 @@ class PromptExpandStage(Stage):
         style_text: str,
     ) -> str:
         return (
+            "/no_think\n"
             f"故事种子：{story_seed.strip()}\n"
             f"剧集标题：{episode_title.strip() or '（待定）'}\n"
             f"目标分镜数：{scene_count}\n"
@@ -220,14 +226,16 @@ class PromptExpandStage(Stage):
     def _generate(model, tokenizer, messages: list[dict], temperature: float) -> str:
         try:
             from mlx_lm import generate as mlx_generate
+            from mlx_lm.sample_utils import make_sampler
             prompt_text = tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True,
             )
+            sampler = make_sampler(temp=temperature)
             output = mlx_generate(
                 model, tokenizer,
                 prompt=prompt_text,
-                max_tokens=4096,
-                temp=temperature,
+                max_tokens=16384,
+                sampler=sampler,
                 verbose=False,
             )
             return output.strip()
@@ -247,8 +255,27 @@ class PromptExpandStage(Stage):
         return content
 
     @staticmethod
+    def _strip_thinking(text: str) -> str:
+        end_tag = chr(60) + "/" + "think" + chr(62)
+        if end_tag in text:
+            text = text.split(end_tag, 1)[1]
+        if "Thinking Process:" in text:
+            idx = text.find("Thinking Process:")
+            after = text[idx + len("Thinking Process:"):]
+            json_match = re.search(r'\{[\s\n]*"scenes"\s*:', after)
+            if json_match:
+                text = after[json_match.start():]
+            else:
+                brace = after.find("{")
+                if brace >= 0:
+                    text = after[brace:]
+                else:
+                    text = after
+        return text.strip()
+
+    @staticmethod
     def _parse_json(content: str) -> dict | list:
-        text = content.strip()
+        text = PromptExpandStage._strip_thinking(content.strip())
         if text.startswith("```"):
             parts = text.split("```")
             if len(parts) >= 3:
@@ -258,4 +285,31 @@ class PromptExpandStage(Stage):
                 text = inner.strip()
             else:
                 text = text.strip("`")
-        return json.loads(text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            json_match = re.search(r'\{[\s\n]*"scenes"\s*:', text)
+            if json_match:
+                candidate = text[json_match.start():]
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    for end in range(len(candidate) - 1, max(len(candidate) - 2000, 0), -1):
+                        if candidate[end] == '}':
+                            try:
+                                return json.loads(candidate[:end + 1])
+                            except json.JSONDecodeError:
+                                continue
+            brace = text.find("{")
+            if brace >= 0:
+                candidate = text[brace:]
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    for end in range(len(candidate) - 1, max(len(candidate) - 2000, 0), -1):
+                        if candidate[end] == '}':
+                            try:
+                                return json.loads(candidate[:end + 1])
+                            except json.JSONDecodeError:
+                                continue
+            raise

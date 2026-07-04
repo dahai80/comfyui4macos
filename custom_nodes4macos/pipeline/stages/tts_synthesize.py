@@ -101,32 +101,39 @@ class TTSSynthesizeStage(Stage):
         speed: float,
         out_path: str,
     ) -> None:
-        from mlx_audio.tts import generate as tts_generate
         import mlx.core as mx
+        import numpy as np
 
         logger.info("tts_synthesize MLX text_len=%d speed=%.2f", len(text), speed)
-        audio = tts_generate(
-            model,
-            text,
-            voice=voice or None,
-            speed=speed,
-        )
+        all_audio = []
+        for result in model.generate(text, lang_code="chinese", verbose=False):
+            audio = result.audio
+            if isinstance(audio, mx.array):
+                audio = np.array(audio)
+            if isinstance(audio, np.ndarray):
+                all_audio.append(audio)
 
-        if hasattr(audio, "save"):
-            audio.save(out_path)
-        else:
-            import numpy as np
+        if not all_audio:
+            raise RuntimeError("tts_synthesize: model.generate returned no audio")
+
+        full_audio = np.concatenate(all_audio)
+        sr = model.sample_rate if hasattr(model, "sample_rate") else 24000
+        try:
+            import soundfile as sf
+            sf.write(out_path, full_audio, sr)
+        except ImportError:
             import wave
-            arr = mx.array_to_numpy(audio)
+            arr = full_audio
             if np.issubdtype(arr.dtype, np.floating):
                 arr = (arr * 32767).clip(-32767, 32767).astype("int16")
             with wave.open(out_path, "wb") as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
-                wf.setframerate(24000)
+                wf.setframerate(sr)
                 wf.writeframes(arr.tobytes())
 
-        logger.info("tts_synthesize MLX saved: %s (%d bytes)", out_path, os.path.getsize(out_path))
+        logger.info("tts_synthesize MLX saved: %s (%d bytes) dur=%.1fs",
+                     out_path, os.path.getsize(out_path), len(full_audio) / sr)
 
     @staticmethod
     def _synthesize_http(

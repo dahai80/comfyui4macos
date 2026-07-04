@@ -123,33 +123,23 @@ class ImageGenerateStage(Stage):
     ) -> None:
         import mlx.core as mx
 
-        seed_arg = None if seed == 0 else seed
+        seed_arg = seed if seed else 42
         logger.info(
             "image_generate MLX prompt_len=%d size=%dx%d steps=%d seed=%s",
             len(prompt), width, height, steps, seed_arg,
         )
-        images = pipeline.generate(
+        image = pipeline.generate_image(
             prompt=prompt,
             width=width,
             height=height,
-            num_steps=steps,
+            num_inference_steps=steps,
             guidance=guidance,
             seed=seed_arg,
         )
-        if not images:
-            raise RuntimeError("FluxPipeline returned no images")
+        if image is None:
+            raise RuntimeError("Flux1.generate_image returned None")
 
-        img = images[0]
-        if hasattr(img, "save"):
-            img.save(out_path)
-        else:
-            from PIL import Image
-            import numpy as np
-            arr = mx.array_to_numpy(img)
-            if np.issubdtype(arr.dtype, np.floating):
-                arr = (arr * 255).clip(0, 255).astype("uint8")
-            pil_img = Image.fromarray(arr)
-            pil_img.save(out_path)
+        image.save(path=out_path)
 
         logger.info("image_generate MLX saved: %s (%d bytes)", out_path, os.path.getsize(out_path))
 

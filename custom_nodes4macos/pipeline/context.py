@@ -26,13 +26,8 @@ class PipelineContext:
         self.created_at: str = ""
 
     def artifact_path(self, scene_id: int, kind: str) -> str:
-        key = f"{scene_id}_{kind}"
-        if key not in self.artifacts:
-            ext = _ARTIFACT_EXTENSIONS.get(kind, "bin")
-            self.artifacts[key] = os.path.join(
-                self.job_dir, f"scene_{scene_id:03d}_{kind}.{ext}"
-            )
-        return self.artifacts[key]
+        ext = _ARTIFACT_EXTENSIONS.get(kind, "bin")
+        return os.path.join(self.job_dir, f"scene_{scene_id:03d}_{kind}.{ext}")
 
     def set_artifact(self, scene_id: int, kind: str, path: str):
         key = f"{scene_id}_{kind}"
@@ -40,16 +35,20 @@ class PipelineContext:
         logger.debug("artifact set: %s → %s", key, path)
 
     def get_artifact(self, scene_id: int, kind: str) -> str | None:
-        return self.artifacts.get(f"{scene_id}_{kind}")
+        key = f"{scene_id}_{kind}"
+        if key in self.artifacts:
+            return self.artifacts[key]
+        return None
 
     def has_artifact_on_disk(self, scene_id: int, kind: str) -> bool:
         path = self.get_artifact(scene_id, kind)
-        if not path or not os.path.exists(path):
-            return False
-        try:
-            return os.path.getsize(path) > 0
-        except OSError:
-            return False
+        if path and os.path.exists(path) and os.path.getsize(path) > 0:
+            return True
+        path = self.artifact_path(scene_id, kind)
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            self.artifacts[f"{scene_id}_{kind}"] = path
+            return True
+        return False
 
     def update_progress(self, stage_name: str, scene: int = 0, total: int = 0):
         pct = (scene / total * 100) if total > 0 else 0.0

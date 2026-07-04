@@ -154,6 +154,10 @@ class PipelineEngine:
         ctx.created_at = cp.created_at
         checkpoint.restore_context(ctx)
 
+        if ctx.scenes and not ctx.config.get("episodes"):
+            ctx.config["episodes"] = ctx.scenes
+            logger.info("resume: synced %d episodes from ctx.scenes to config", len(ctx.scenes))
+
         logger.info(
             "resume job=%s completed_stages=%s artifacts=%d",
             job_id, ctx.completed_stages, len(ctx.artifacts),

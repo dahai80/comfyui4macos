@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 from ..stage import Stage, StageInfo
@@ -55,6 +56,10 @@ class StoryIngestStage(Stage):
                 episode_duration_min, ctx,
             )
 
+        raw_llm_path = os.path.join(ctx.job_dir, "_story_ingest_raw.txt")
+        with open(raw_llm_path, "w", encoding="utf-8") as f:
+            f.write(outline)
+        logger.info("story_ingest raw output saved: %s (%d chars)", raw_llm_path, len(outline))
         episodes = self._parse_episodes(outline)
         if not episodes:
             raise RuntimeError("story_ingest: failed to generate episode outline")
@@ -197,6 +202,7 @@ class StoryIngestStage(Stage):
             "4. 只输出 JSON，无其他文字"
         )
         user_msg = (
+            "/no_think\n"
             f"小说共 {len(chapters)} 章，概要如下：\n\n"
             f"{chapters_summary}\n"
             f"请规划 {episode_count} 集分集大纲。"
@@ -212,14 +218,16 @@ class StoryIngestStage(Stage):
     def _generate(model, tokenizer, messages, temperature) -> str:
         try:
             from mlx_lm import generate as mlx_generate
+            from mlx_lm.sample_utils import make_sampler
             prompt_text = tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True,
             )
+            sampler = make_sampler(temp=temperature)
             output = mlx_generate(
                 model, tokenizer,
                 prompt=prompt_text,
-                max_tokens=8192,
-                temp=temperature,
+                max_tokens=16384,
+                sampler=sampler,
                 verbose=False,
             )
             return output.strip()
@@ -239,8 +247,27 @@ class StoryIngestStage(Stage):
         return content
 
     @staticmethod
+    def _strip_thinking(text: str) -> str:
+        end_tag = chr(60) + "/" + "think" + chr(62)
+        if end_tag in text:
+            text = text.split(end_tag, 1)[1]
+        if "Thinking Process:" in text:
+            idx = text.find("Thinking Process:")
+            after = text[idx + len("Thinking Process:"):]
+            json_match = re.search(r'\{[\s\n]*"episodes"\s*:', after)
+            if json_match:
+                text = after[json_match.start():]
+            else:
+                brace = after.find("{")
+                if brace >= 0:
+                    text = after[brace:]
+                else:
+                    text = after
+        return text.strip()
+
+    @staticmethod
     def _parse_episodes(content: str) -> list[dict]:
-        text = content.strip()
+        text = StoryIngestStage._strip_thinking(content.strip())
         if text.startswith("```"):
             parts = text.split("```")
             if len(parts) >= 3:
@@ -250,9 +277,38 @@ class StoryIngestStage(Stage):
                 text = inner.strip()
             else:
                 text = text.strip("`")
+        parsed = None
         try:
             parsed = json.loads(text)
         except json.JSONDecodeError:
+            json_match = re.search(r'\{[\s\n]*"episodes"\s*:', text)
+            if json_match:
+                candidate = text[json_match.start():]
+                try:
+                    parsed = json.loads(candidate)
+                except json.JSONDecodeError:
+                    for end in range(len(candidate) - 1, max(len(candidate) - 2000, 0), -1):
+                        if candidate[end] == '}':
+                            try:
+                                parsed = json.loads(candidate[:end + 1])
+                                break
+                            except json.JSONDecodeError:
+                                continue
+            if parsed is None:
+                brace = text.find("{")
+                if brace >= 0:
+                    candidate = text[brace:]
+                    try:
+                        parsed = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        for end in range(len(candidate) - 1, max(len(candidate) - 2000, 0), -1):
+                            if candidate[end] == '}':
+                                try:
+                                    parsed = json.loads(candidate[:end + 1])
+                                    break
+                                except json.JSONDecodeError:
+                                    continue
+        if parsed is None:
             logger.error("story_ingest JSON parse failed: %s...", text[:200])
             return []
         if isinstance(parsed, dict):

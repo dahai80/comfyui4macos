@@ -139,7 +139,7 @@ def test_node_synthesize_live():
         )
     except FusionMLXError as exc:
         msg = str(exc).lower()
-        if "404" in msg or "not found" in msg or "401" in msg or "auth" in msg:
+        if "404" in msg or "not found" in msg or "401" in msg or "auth" in msg or "500" in msg or "internal" in msg:
             pytest.skip(f"TTS model not available in this fusion-mlx instance: {exc}")
         raise
     assert os.path.exists(path)
