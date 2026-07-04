@@ -226,12 +226,24 @@ custom_nodes4macos/
 | Phase | Model | GPU Peak | Time (8 scenes) |
 |-------|-------|----------|-----------------|
 | A: LLM | Qwen3.5-9B | 5.6G | ~10s |
-| B: Image | Flux | 7.0G → ~4G* | ~3-4min |
-| C: TTS | Qwen3-TTS | 2.9G | ~2min |
-| D: FFmpeg | None | 0G | ~30s (VideoToolbox) |
-| **Total** | | **7.0G** | **~6-7min** |
+| B: Image | Flux | 7.0G → ~4G* | ~4min (32s/image) |
+| C: TTS | Qwen3-TTS | 2.9G | ~6min |
+| D: FFmpeg | None | 0G | ~2min (VideoToolbox) |
+| **Total** | | **7.0G** | **~12min** |
 
 *Peak during denoising only; text encoders evicted (~4-6GB freed) before denoising starts.
+
+### Series Benchmark: 青溪渡阴 6集 (48 scenes)
+
+| Phase | Time | Notes |
+|-------|------|-------|
+| Story Ingest | ~3s | 2 chapters, 14451 chars |
+| Prompt Expand | ~90s | 6 episodes, Qwen3.5-9B |
+| Image Generate | ~5.5min | 48 images, 32s/image avg, mx.compile + FlowMatchEuler 6-step |
+| TTS Synthesize | ~5.8min | 48 audio clips |
+| Ken Burns | ~1.7min | 48 clips, VideoToolbox |
+| Assemble | ~1.0min | Final 8.7min video |
+| **Total** | **~14min** | 1080×1920 h264, 108.8MB |
 
 30-min series (80 scenes/episode × 30 episodes): ~30-50min GPU time per episode, checkpoint/resume essential.
 

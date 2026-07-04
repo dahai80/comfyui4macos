@@ -361,6 +361,11 @@ class ImageGenerateStage(Stage):
             prompt_embeds, pipeline.transformer.pos_embed, config,
         )
 
+        # Pre-compute encoder hidden states (constant across denoising steps)
+        encoder_hidden_states = pipeline.transformer.context_embedder(prompt_embeds)
+        mx.eval(encoder_hidden_states)
+        enc_seq_len = encoder_hidden_states.shape[1]
+
         # Pre-compute text embeddings for all timesteps
         num_steps = config.num_inference_steps
         sigmas = config.scheduler.sigmas
@@ -375,35 +380,22 @@ class ImageGenerateStage(Stage):
                 time_step, pooled_embeds, guid_arr,
             )
             all_text_emb.append(text_emb)
+        mx.eval(all_text_emb)
+        logger.info(
+            "pre-computed: rotary_emb + %d text_emb + encoder_hidden_states (enc_seq=%d)",
+            num_steps, enc_seq_len,
+        )
 
-        # Try mx.compile on the transformer forward
-        compiled_forward = None
-        try:
-            compiled_forward = mx.compile(pipeline.transformer.__call__)
-            # Warmup: trigger compilation with a dummy call
-            _ = compiled_forward(
-                t=0, config=config, hidden_states=latents,
-                prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_embeds,
-            )
-            mx.eval(_)
-            logger.info("mx.compile(transformer.__call__) succeeded")
-        except Exception as exc:
-            logger.warning("mx.compile(transformer) failed: %s, using uncompiled", exc)
-            compiled_forward = None
+        # Get or create compiled step function (cached across images)
+        compiled_step, uncompiled_step = ImageGenerateStage._get_compiled_step(
+            pipeline, enc_seq_len,
+        )
 
         # Denoising loop
+        step_fn = compiled_step if compiled_step is not None else uncompiled_step
         t_loop = time.time()
         for t in range(num_steps):
-            if compiled_forward is not None:
-                noise = compiled_forward(
-                    t=t, config=config, hidden_states=latents,
-                    prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_embeds,
-                )
-            else:
-                noise = pipeline.transformer(
-                    t=t, config=config, hidden_states=latents,
-                    prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_embeds,
-                )
+            noise = step_fn(latents, encoder_hidden_states, all_text_emb[t], rotary_emb)
             latents = config.scheduler.step(noise=noise, timestep=t, latents=latents)
             mx.eval(latents)
             logger.debug("step %d/%d done", t + 1, num_steps)
@@ -432,6 +424,56 @@ class ImageGenerateStage(Stage):
         )
         image.save(path=out_path)
         logger.info("image_generate MLX fast saved: %s (%d bytes)", out_path, os.path.getsize(out_path))
+
+    @staticmethod
+    def _get_compiled_step(pipeline, enc_seq_len: int):
+        import mlx.core as mx
+
+        cache_key = "_dream_factory_compiled_step"
+        if hasattr(pipeline, cache_key):
+            cached = getattr(pipeline, cache_key)
+            if cached["enc_seq_len"] == enc_seq_len:
+                logger.debug("reusing cached compiled step function")
+                return cached["compiled"], cached["uncompiled"]
+
+        transformer = pipeline.transformer
+
+        def _step(hidden_states, encoder_hidden_states, text_embeddings, rotary_emb):
+            hidden_states = transformer.x_embedder(hidden_states)
+            for block in transformer.transformer_blocks:
+                encoder_hidden_states, hidden_states = block(
+                    hidden_states=hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+                    text_embeddings=text_embeddings,
+                    rotary_embeddings=rotary_emb,
+                )
+            hidden_states = mx.concatenate(
+                [encoder_hidden_states, hidden_states], axis=1,
+            )
+            for block in transformer.single_transformer_blocks:
+                hidden_states = block(
+                    hidden_states=hidden_states,
+                    text_embeddings=text_embeddings,
+                    rotary_embeddings=rotary_emb,
+                )
+            hidden_states = hidden_states[:, enc_seq_len:, ...]
+            hidden_states = transformer.norm_out(hidden_states, text_embeddings)
+            hidden_states = transformer.proj_out(hidden_states)
+            return hidden_states
+
+        compiled_step = None
+        try:
+            compiled_step = mx.compile(_step)
+            logger.info("mx.compile(step) compiled transformer forward (new)")
+        except Exception as exc:
+            logger.warning("mx.compile(step) failed: %s, using uncompiled", exc)
+
+        setattr(pipeline, cache_key, {
+            "compiled": compiled_step,
+            "uncompiled": _step,
+            "enc_seq_len": enc_seq_len,
+        })
+        return compiled_step, _step
 
     @staticmethod
     def _generate_http(
