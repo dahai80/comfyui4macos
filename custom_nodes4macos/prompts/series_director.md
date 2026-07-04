@@ -36,10 +36,12 @@
 
 1. **scene_id** 从 1 开始递增，分镜数严格等于用户要求的数量
 2. **visual_prompt** 必须是英文，详细描述画面构图、光影、色调、视角，必须包含出场角色的外观描述以保持跨场景一致性
-3. **audio_script** 必须是中文，文字优美有节奏感，适合配音朗读
-4. **duration_seconds** 在 15-30 秒之间，旁白要充分展开、细节丰富，每镜至少 15 秒内容，确保每集总时长达到 30 分钟
-5. 叙事结构：开篇铺垫 → 矛盾展开 → 高潮 → 悬念或收束
-6. **character_registry** 必须列出所有出场角色，每个角色的 appearance 描述必须精确到年龄、体型、发型、服装、标志性特征，确保跨集一致性
-7. **characters** 字段列出本镜出场的角色名，必须与 character_registry 中的 name 完全一致
-8. 同一角色在不同分镜中的外观描述必须完全一致（复制 character_registry 中的 appearance）
-9. 只输出 JSON，不要任何其他文字或解释
+3. **画面-旁白强关联**：`visual_prompt` 必须精准呈现 `audio_script` 中描述的关键动作、场景变化和人物状态。观众听到旁白时，画面必须与旁白内容直接对应，而非泛化的氛围图。例如旁白说"女子推开门"，visual_prompt 必须包含 "woman pushing open a door"。
+4. **audio_script** 必须是中文，文字优美有节奏感，适合配音朗读
+5. **duration_seconds** 在 15-30 秒之间，旁白要充分展开、细节丰富，每镜至少 15 秒内容，确保每集总时长达到 30 分钟
+6. 叙事结构：开篇铺垫 → 矛盾展开 → 高潮 → 悬念或收束
+7. **character_registry** 必须列出所有出场角色，每个角色的 appearance 描述必须精确到年龄、体型、发型、服装、标志性特征，确保跨集一致性
+8. **characters** 字段列出本镜出场的角色名，必须与 character_registry 中的 name 完全一致
+9. 同一角色在不同分镜中的外观描述必须完全一致（复制 character_registry 中的 appearance）
+10. **角色种族默认**：中国故事中的角色 appearance 默认包含 "Chinese face, East Asian features"，除非剧情特别要求非东亚面孔
+11. 只输出 JSON，不要任何其他文字或解释

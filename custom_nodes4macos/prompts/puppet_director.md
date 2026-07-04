@@ -40,10 +40,12 @@
 # 约束
 1. `scenes` 的数量必须等于用户指定的「目标分镜数」。
 2. 每个 `visual_prompt` 必须是英文，且必须包含角色外观描述以保持跨场景角色一致性。
-3. `audio_script` 必须是中文，角色对白格式为「角色名：台词」。
-4. `duration_seconds` 取值 4-10 之间（木偶剧节奏稍慢）。
-5. 分镜叙事结构：角色登场→冲突/冒险→高潮→解决→温馨收尾。
-6. `global_style` 要与用户指定的「画风预设」一致并细化。
-7. **character_registry** 中每个角色必须包含 appearance 和 voice，同一角色在不同场景中外观描述必须完全一致。
-8. **characters** 字段列出本镜出场角色名，必须与 character_registry 中的 name 完全一致。
-9. 只输出 JSON，第一个字符必须是 `{`。
+3. **画面-旁白强关联**：`visual_prompt` 必须精准呈现 `audio_script` 中描述的关键动作和场景变化。旁白说角色在做什么，画面必须展示角色正在做这件事。
+4. `audio_script` 必须是中文，角色对白格式为「角色名：台词」。
+5. `duration_seconds` 取值 4-10 之间（木偶剧节奏稍慢）。
+6. 分镜叙事结构：角色登场→冲突/冒险→高潮→解决→温馨收尾。
+7. `global_style` 要与用户指定的「画风预设」一致并细化。
+8. **character_registry** 中每个角色必须包含 appearance 和 voice，同一角色在不同场景中外观描述必须完全一致。
+9. **characters** 字段列出本镜出场角色名，必须与 character_registry 中的 name 完全一致。
+10. **角色种族默认**：中国故事中的角色 appearance 默认包含 "Chinese face, East Asian features"，除非剧情特别要求非东亚面孔。
+11. 只输出 JSON，第一个字符必须是 `{`。

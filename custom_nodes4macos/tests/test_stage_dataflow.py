@@ -41,7 +41,7 @@ class TestPromptExpandToImageGenerate(unittest.TestCase):
         ]
         ctx = _make_ctx(scenes, self._tmpdir, {"global_style": "ink-wash, 8k"})
 
-        def fake_gen(pipeline, prompt, w, h, steps, g, seed, out_path):
+        def fake_gen(pipeline, prompt, w, h, steps, g, seed, out_path, scheduler="linear"):
             with open(out_path, "wb") as f:
                 f.write(b"fake-png")
             return None

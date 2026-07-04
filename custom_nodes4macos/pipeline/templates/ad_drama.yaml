@@ -10,6 +10,8 @@ defaults:
   flux_width: 1024
   flux_height: 1024
   flux_guidance: 4.0
+  flux_scheduler: "flow_match_euler_discrete"
+  flux_steps_auto: true
   ken_burns_preset: "zoom-in"
   ken_burns_width: 1080
   ken_burns_height: 1920

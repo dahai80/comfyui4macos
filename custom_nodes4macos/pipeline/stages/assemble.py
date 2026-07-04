@@ -45,7 +45,42 @@ class AssembleStage(Stage):
             clips, width, height, fps, transition, bgm_path, out_path,
         )
         ctx.set_artifact(0, "final", out_path)
+
+        friendly = self._friendly_output_path(ctx)
+        if friendly and friendly != out_path:
+            try:
+                import shutil
+                if os.path.exists(friendly):
+                    os.remove(friendly)
+                shutil.copy2(out_path, friendly)
+                logger.info("assemble friendly copy: %s → %s", out_path, friendly)
+            except Exception as exc:
+                logger.warning("failed to create friendly output: %s", exc)
+
         ctx.update_progress("assemble", 1, 1)
+
+    @staticmethod
+    def _friendly_output_path(ctx) -> str | None:
+        story_title = ctx.config.get("story_title", "")
+        if not story_title and ctx.scenes:
+            story_title = ctx.scenes[0].get("story_title", "")
+        if not story_title:
+            return None
+        episode_title = ""
+        if ctx.scenes:
+            ep_title = ctx.scenes[0].get("episode_title", "")
+            if ep_title:
+                episode_title = f"_{ep_title}"
+        safe_title = "".join(
+            c for c in story_title if c.isalnum() or c in "_.-－—"
+        ).strip()
+        if not safe_title:
+            return None
+        safe_ep = "".join(
+            c for c in episode_title if c.isalnum() or c in "_.-－—"
+        ).strip("_-")
+        filename = f"{safe_title}{safe_ep}.mp4" if safe_ep else f"{safe_title}.mp4"
+        return os.path.join(ctx.job_dir, filename)
 
     @staticmethod
     def _collect_clips(ctx) -> list[str]:

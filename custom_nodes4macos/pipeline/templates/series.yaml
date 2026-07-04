@@ -12,6 +12,8 @@ defaults:
   flux_width: 1024
   flux_height: 1024
   flux_guidance: 4.0
+  flux_scheduler: "flow_match_euler_discrete"
+  flux_steps_auto: true
   tts_instructions: "沉稳、有感染力的专业旁白，带情感起伏"
   ken_burns_preset: "random"
   ken_burns_workers: 3

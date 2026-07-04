@@ -68,12 +68,6 @@ class TTSSynthesizeStage(Stage):
                 except Exception:
                     pass
 
-                try:
-                    import mlx.core as mx
-                    mx.clear_cache()
-                except ImportError:
-                    pass
-
                 ctx.update_progress("tts_synthesize", i + 1, len(ctx.scenes))
 
                 if ctx.should_checkpoint_scene(i + 1):
@@ -87,8 +81,12 @@ class TTSSynthesizeStage(Stage):
         voices = []
         for name in scene_chars:
             c = char_lookup.get(name)
-            if c and c.get("voice"):
+            if not c:
+                continue
+            if c.get("voice"):
                 voices.append(f"{name}：{c['voice']}")
+            elif c.get("gender", "").lower() in ("female", "女", "女性", "f"):
+                voices.append(f"{name}：女声，温柔细腻")
         if not voices:
             return base_instructions
         return f"{base_instructions}；角色配音：{'；'.join(voices)}"
@@ -124,9 +122,14 @@ class TTSSynthesizeStage(Stage):
         import mlx.core as mx
         import numpy as np
 
-        logger.info("tts_synthesize MLX text_len=%d speed=%.2f", len(text), speed)
+        logger.info("tts_synthesize MLX text_len=%d speed=%.2f voice=%s", len(text), speed, voice or "(default)")
         all_audio = []
-        for result in model.generate(text, lang_code="chinese", verbose=False):
+        gen_kwargs = {"lang_code": "chinese", "verbose": False}
+        if voice:
+            gen_kwargs["voice"] = voice
+        if instructions:
+            gen_kwargs["instructions"] = instructions
+        for result in model.generate(text, **gen_kwargs):
             audio = result.audio
             if isinstance(audio, mx.array):
                 audio = np.array(audio)

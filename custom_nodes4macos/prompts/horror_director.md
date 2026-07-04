@@ -40,10 +40,12 @@
 # 约束
 1. `scenes` 的数量必须等于用户指定的「目标分镜数」。
 2. 每个 `visual_prompt` 必须是英文，且包含具体的中式恐怖视觉元素，不得泛泛而谈。
-3. `audio_script` 必须是中文，长度需与 `duration_seconds` 匹配（每秒约 4-5 字，旁白要详尽细腻，每镜至少 8 秒内容）。
-4. `duration_seconds` 取值 8-15 之间。
-5. 分镜之间要有叙事递进：起势→不对劲→逼近→惊变→余韵。
-6. `global_style` 要与用户指定的「画风预设」一致并细化。
-7. **character_registry** 列出所有出场角色，同一角色在不同场景的外观描述必须完全一致。
-8. **characters** 字段列出本镜出场角色名，必须与 character_registry 中的 name 完全一致。
-9. 只输出 JSON，第一个字符必须是 `{`。
+3. **画面-旁白强关联**：`visual_prompt` 必须精准呈现 `audio_script` 中描述的关键动作、场景变化和人物状态。观众听到旁白时，画面必须与旁白内容直接对应，而非泛化的氛围图。例如旁白说"女子推开门"，visual_prompt 必须包含 "woman pushing open a door"；旁白说"铜铃响起"，visual_prompt 必须包含 "bronze bell ringing"。
+4. `audio_script` 必须是中文，长度需与 `duration_seconds` 匹配（每秒约 4-5 字，旁白要详尽细腻，每镜至少 8 秒内容）。
+5. `duration_seconds` 取值 8-15 之间。
+6. 分镜之间要有叙事递进：起势→不对劲→逼近→惊变→余韵。
+7. `global_style` 要与用户指定的「画风预设」一致并细化。
+8. **character_registry** 列出所有出场角色，同一角色在不同场景的外观描述必须完全一致。
+9. **characters** 字段列出本镜出场角色名，必须与 character_registry 中的 name 完全一致。
+10. **角色种族默认**：中国故事中的角色 appearance 默认包含 "Chinese face, East Asian features"，除非剧情特别要求非东亚面孔。
+11. 只输出 JSON，第一个字符必须是 `{`。

@@ -368,5 +368,117 @@ class TestTTSSynthesizeProcess(unittest.TestCase):
         mock_synth.assert_called_once()
 
 
+class TestTTSVoiceGender(unittest.TestCase):
+
+    def test_female_gender_gets_female_voice(self):
+        char_lookup = {"白灵": {"name": "白灵", "gender": "female", "appearance": "woman in white"}}
+        result = TTSSynthesizeStage._get_scene_instructions(
+            "低沉旁白", ["白灵"], char_lookup,
+        )
+        self.assertIn("女声", result)
+        self.assertIn("白灵", result)
+
+    def test_female_gender_chinese(self):
+        char_lookup = {"白灵": {"name": "白灵", "gender": "女", "appearance": "woman in white"}}
+        result = TTSSynthesizeStage._get_scene_instructions(
+            "低沉旁白", ["白灵"], char_lookup,
+        )
+        self.assertIn("女声", result)
+
+    def test_explicit_voice_overrides_gender(self):
+        char_lookup = {"白灵": {"name": "白灵", "gender": "female", "voice": "清脆女声"}}
+        result = TTSSynthesizeStage._get_scene_instructions(
+            "低沉旁白", ["白灵"], char_lookup,
+        )
+        self.assertIn("清脆女声", result)
+        self.assertNotIn("女声，温柔细腻", result)
+
+    def test_male_gender_no_auto_voice(self):
+        char_lookup = {"老张": {"name": "老张", "gender": "male", "appearance": "old man"}}
+        result = TTSSynthesizeStage._get_scene_instructions(
+            "低沉旁白", ["老张"], char_lookup,
+        )
+        self.assertEqual(result, "低沉旁白")
+
+    def test_no_characters_returns_base(self):
+        result = TTSSynthesizeStage._get_scene_instructions("旁白", [], {})
+        self.assertEqual(result, "旁白")
+
+
+class TestAssembleFriendlyOutput(unittest.TestCase):
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+
+    def test_friendly_path_with_story_title(self):
+        ctx = PipelineContext(job_id="test", job_dir=self._tmpdir, config={
+            "story_title": "青溪渡阴",
+        })
+        ctx.scenes = [{"scene_id": 1}]
+        path = AssembleStage._friendly_output_path(ctx)
+        self.assertIsNotNone(path)
+        self.assertTrue(path.endswith("青溪渡阴.mp4"))
+
+    def test_friendly_path_with_episode(self):
+        ctx = PipelineContext(job_id="test", job_dir=self._tmpdir, config={
+            "story_title": "青溪渡阴",
+        })
+        ctx.scenes = [{"scene_id": 1, "episode_title": "第三集"}]
+        path = AssembleStage._friendly_output_path(ctx)
+        self.assertIsNotNone(path)
+        self.assertIn("青溪渡阴", path)
+        self.assertIn("第三集", path)
+
+    def test_friendly_path_no_title_returns_none(self):
+        ctx = PipelineContext(job_id="test", job_dir=self._tmpdir, config={})
+        ctx.scenes = [{"scene_id": 1}]
+        path = AssembleStage._friendly_output_path(ctx)
+        self.assertIsNone(path)
+
+    def test_friendly_path_scene_story_title(self):
+        ctx = PipelineContext(job_id="test", job_dir=self._tmpdir, config={})
+        ctx.scenes = [{"scene_id": 1, "story_title": "深夜奇谈"}]
+        path = AssembleStage._friendly_output_path(ctx)
+        self.assertIsNotNone(path)
+        self.assertTrue(path.endswith("深夜奇谈.mp4"))
+
+
+class TestChineseFaceEnforcement(unittest.TestCase):
+
+    def test_chinese_face_enforced_for_short_drama(self):
+        ctx = PipelineContext(job_id="test", job_dir="/tmp/test", config={
+            "content_type": "short_drama",
+            "character_registry": [
+                {"name": "小芳", "appearance": "young woman, long black hair, white dress"},
+            ],
+        })
+        PromptExpandStage._enforce_chinese_faces(ctx)
+        app = ctx.config["character_registry"][0]["appearance"]
+        self.assertIn("Chinese face", app)
+        self.assertIn("East Asian features", app)
+
+    def test_chinese_face_not_enforced_for_digital_human(self):
+        ctx = PipelineContext(job_id="test", job_dir="/tmp/test", config={
+            "content_type": "digital_human",
+            "character_registry": [
+                {"name": "Avatar", "appearance": "young woman, long hair"},
+            ],
+        })
+        PromptExpandStage._enforce_chinese_faces(ctx)
+        app = ctx.config["character_registry"][0]["appearance"]
+        self.assertNotIn("Chinese face", app)
+
+    def test_chinese_face_not_duplicated_if_already_present(self):
+        ctx = PipelineContext(job_id="test", job_dir="/tmp/test", config={
+            "content_type": "short_drama",
+            "character_registry": [
+                {"name": "小芳", "appearance": "Chinese face, East Asian features, young woman"},
+            ],
+        })
+        PromptExpandStage._enforce_chinese_faces(ctx)
+        app = ctx.config["character_registry"][0]["appearance"]
+        self.assertEqual(app.count("Chinese face"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

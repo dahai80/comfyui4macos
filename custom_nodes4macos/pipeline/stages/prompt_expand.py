@@ -81,6 +81,7 @@ class PromptExpandStage(Stage):
             logger.info("global_style from LLM: %s", parsed["global_style"])
 
         self._merge_character_registry(ctx, parsed)
+        self._enforce_chinese_faces(ctx)
 
         ctx.scenes = scenes
         ctx.update_progress("prompt_expand", 1, 1)
@@ -226,6 +227,24 @@ class PromptExpandStage(Stage):
                         break
         ctx.config["character_registry"] = existing
         logger.info("character_registry merged: %d characters", len(existing))
+
+    @staticmethod
+    def _enforce_chinese_faces(ctx) -> None:
+        content_type = ctx.config.get("content_type", "")
+        chinese_types = {"short_drama", "series", "medium_video", "puppet_show", "ad_drama"}
+        if content_type not in chinese_types:
+            return
+        char_reg = ctx.config.get("character_registry", [])
+        if not char_reg:
+            return
+        enforced = 0
+        for c in char_reg:
+            app = c.get("appearance", "")
+            if app and "chinese" not in app.lower() and "east asian" not in app.lower():
+                c["appearance"] = f"Chinese face, East Asian features, {app}"
+                enforced += 1
+        if enforced:
+            logger.info("enforced Chinese face default for %d characters", enforced)
 
     @staticmethod
     def _load_system_prompt(filename: str) -> str:
