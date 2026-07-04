@@ -17,12 +17,20 @@
 {
   "story_title": "故事标题（不超过10字）",
   "global_style": "全局画风描述（英文，供图像生成用）",
+  "character_registry": [
+    {
+      "name": "角色名",
+      "appearance": "English appearance description: age, build, hair, clothing, distinguishing features",
+      "voice": "中文声音特征描述：音色、语速、语气特点"
+    }
+  ],
   "scenes": [
     {
       "scene_id": 1,
-      "visual_prompt": "英文视觉提示词，供 Flux 生图：场景+人物神态+道家/佛家/民俗元素+光影+构图，不带任何中文",
+      "visual_prompt": "英文视觉提示词，供 Flux 生图：场景+人物神态（来自registry）+道家/佛家/民俗元素+光影+构图，不带任何中文",
       "audio_script": "本分镜的中文旁白配音文本，惊悚评书调性，1-3句",
       "sound_effect": "背景音效提示（英文短语，如 wind howling, wooden door creaking, distant bell）",
+      "characters": ["角色名1"],
       "duration_seconds": 5
     }
   ]
@@ -36,4 +44,6 @@
 4. `duration_seconds` 取值 8-15 之间。
 5. 分镜之间要有叙事递进：起势→不对劲→逼近→惊变→余韵。
 6. `global_style` 要与用户指定的「画风预设」一致并细化。
-7. 只输出 JSON，第一个字符必须是 `{`。
+7. **character_registry** 列出所有出场角色，同一角色在不同场景的外观描述必须完全一致。
+8. **characters** 字段列出本镜出场角色名，必须与 character_registry 中的 name 完全一致。
+9. 只输出 JSON，第一个字符必须是 `{`。

@@ -28,6 +28,8 @@ class TTSSynthesizeStage(Stage):
         voice = ctx.config.get("tts_voice", "")
         instructions = ctx.config.get("tts_instructions", "低沉、压抑、略带颤抖的旁白语气；语速偏慢，停顿处留白以制造悬念")
         speed = ctx.config.get("tts_speed", 1.0)
+        character_registry = ctx.config.get("character_registry", [])
+        char_lookup = {c["name"]: c for c in character_registry if "name" in c}
 
         from ..checkpoint import CheckpointManager
         checkpoint = CheckpointManager(ctx.job_dir)
@@ -45,10 +47,15 @@ class TTSSynthesizeStage(Stage):
                     logger.warning("tts_synthesize scene %d: no audio_script, skip", scene_id)
                     continue
 
+                scene_chars = scene.get("characters", [])
+                scene_instructions = self._get_scene_instructions(
+                    instructions, scene_chars, char_lookup,
+                )
+
                 out_path = ctx.artifact_path(scene_id, "audio")
 
                 self._synthesize(
-                    tts_model, audio_script, voice, instructions, speed, out_path,
+                    tts_model, audio_script, voice, scene_instructions, speed, out_path,
                 )
                 ctx.set_artifact(scene_id, "audio", out_path)
 
@@ -72,6 +79,19 @@ class TTSSynthesizeStage(Stage):
                 if ctx.should_checkpoint_scene(i + 1):
                     checkpoint.save(ctx)
                     logger.info("scene-level checkpoint saved at scene %d", scene_id)
+
+    @staticmethod
+    def _get_scene_instructions(base_instructions: str, scene_chars: list, char_lookup: dict) -> str:
+        if not scene_chars or not char_lookup:
+            return base_instructions
+        voices = []
+        for name in scene_chars:
+            c = char_lookup.get(name)
+            if c and c.get("voice"):
+                voices.append(f"{name}：{c['voice']}")
+        if not voices:
+            return base_instructions
+        return f"{base_instructions}；角色配音：{'；'.join(voices)}"
 
     @staticmethod
     def _synthesize(

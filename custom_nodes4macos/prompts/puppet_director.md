@@ -17,10 +17,11 @@
 {
   "story_title": "木偶剧标题（不超过10字）",
   "global_style": "全局画风描述（英文，供图像生成用）",
-  "character_descriptions": [
+  "character_registry": [
     {
       "name": "角色名",
-      "appearance": "英文角色外观描述，供 Flux 生图用，保持角色一致性"
+      "appearance": "英文角色外观描述，供 Flux 生图用，保持角色一致性",
+      "voice": "中文声音特征描述：音色、语速、语气特点，如'清脆童声，语速快，活泼'"
     }
   ],
   "scenes": [
@@ -28,6 +29,7 @@
       "scene_id": 1,
       "visual_prompt": "英文视觉提示词，供 Flux 生图：角色+场景+动作+材质细节+光影，必须包含角色外观描述以保持一致性",
       "audio_script": "本分镜的中文对白/旁白文本，角色说话时标注角色名",
+      "characters": ["角色名1", "角色名2"],
       "sound_effect": "背景音效提示（英文短语，如 cheerful music, footsteps on fabric, wind chime）",
       "duration_seconds": 5
     }
@@ -42,4 +44,6 @@
 4. `duration_seconds` 取值 4-10 之间（木偶剧节奏稍慢）。
 5. 分镜叙事结构：角色登场→冲突/冒险→高潮→解决→温馨收尾。
 6. `global_style` 要与用户指定的「画风预设」一致并细化。
-7. 只输出 JSON，第一个字符必须是 `{`。
+7. **character_registry** 中每个角色必须包含 appearance 和 voice，同一角色在不同场景中外观描述必须完全一致。
+8. **characters** 字段列出本镜出场角色名，必须与 character_registry 中的 name 完全一致。
+9. 只输出 JSON，第一个字符必须是 `{`。

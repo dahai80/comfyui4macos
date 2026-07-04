@@ -157,6 +157,19 @@ class ModelManager:
 
         return ModelHandle(name, model, self)
 
+    def shutdown(self) -> None:
+        names = list(self._loaded.keys())
+        for name in names:
+            self.release(name)
+        self._current_usage = 0.0
+        gc.collect()
+        try:
+            import mlx.core as mx
+            mx.clear_cache()
+            logger.info("ModelManager shutdown complete, mx.clear_cache() done")
+        except ImportError:
+            logger.info("ModelManager shutdown complete (mlx not available)")
+
     def release(self, name: str) -> None:
         reg = self.MODEL_REGISTRY.get(name)
         if not reg:

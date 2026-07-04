@@ -61,6 +61,27 @@ class TestModelManagerAcquireRelease(unittest.TestCase):
         self.assertEqual(mgr.current_usage_gb, 0.0)
         self.assertNotIn("test_model", mgr._loaded)
 
+    @patch.object(ModelManager, "MODEL_REGISTRY", {
+        "m1": {"path": "fake1", "memory_gb": 3.0, "loader": "_load_llm"},
+        "m2": {"path": "fake2", "memory_gb": 2.0, "loader": "_load_flux"},
+    })
+    @patch.object(ModelManager, "_load_llm", return_value="obj1")
+    @patch.object(ModelManager, "_load_flux", return_value="obj2")
+    def test_shutdown_releases_all(self, mock_flux, mock_llm):
+        mgr = ModelManager(mode=ModelMode.RESIDENT)
+        mgr._acquire_handle("m1")
+        mgr._acquire_handle("m2")
+        self.assertEqual(mgr.current_usage_gb, 5.0)
+        mgr.shutdown()
+        self.assertEqual(mgr.current_usage_gb, 0.0)
+        self.assertEqual(len(mgr._loaded), 0)
+
+    @patch.object(ModelManager, "MODEL_REGISTRY", {})
+    def test_shutdown_empty_is_safe(self):
+        mgr = ModelManager(mode=ModelMode.SEQUENTIAL)
+        mgr.shutdown()
+        self.assertEqual(mgr.current_usage_gb, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

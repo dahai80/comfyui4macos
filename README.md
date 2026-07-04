@@ -38,7 +38,7 @@ PipelineEngine
 | Model | Size | Purpose |
 |-------|------|---------|
 | Qwen3.5-9B-4bit | 5.6G | Prompt expansion + story ingestion |
-| Flux-1.lite-8B-MLX-Q4 | 7.0G | Image generation (4-step denoising) |
+| Flux-1.lite-8B-MLX-Q4 | 7.0G | Image generation (8-step denoising, dev-variant) |
 | Qwen3-TTS-12Hz-1.7B-Base-8bit | 2.9G | Text-to-speech |
 
 **Sequential loading**: Peak GPU memory = 7.0G (Flux only), not 15.5G (all three).
@@ -77,6 +77,10 @@ pipeline/templates/
 | Lazy MLX imports | All `import mlx_*` inside stage methods; no crash without MLX |
 | HTTP fallback | `FusionMLXClient` when MLX not available |
 | Robust FluxPipeline loading | Tries `flux.FluxPipeline` → `mlx_flux.FluxPipeline` with clear error message |
+| Model shutdown | `ModelManager.shutdown()` releases all models + clears GPU cache after pipeline completes (or on failure) |
+| Character consistency | `character_registry` tracks appearance + voice across scenes/episodes; injected into visual_prompt and TTS instructions |
+| Seed-per-character | Same character name → deterministic hash offset → visual consistency across scenes |
+| Cross-episode registry | Episode 1 defines character registry → carried forward to subsequent episodes via user message |
 
 ## Quick Start
 

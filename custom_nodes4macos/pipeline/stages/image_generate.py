@@ -35,6 +35,8 @@ class ImageGenerateStage(Stage):
         consistency_check = ctx.config.get("consistency_check", False)
         char_ref_dir = ctx.config.get("character_reference_dir", "")
         enable_tiling = ctx.config.get("flux_tiling", width > 1024 or height > 1024)
+        character_registry = ctx.config.get("character_registry", [])
+        char_lookup = {c["name"]: c for c in character_registry if "name" in c}
 
         from ..checkpoint import CheckpointManager
         checkpoint = CheckpointManager(ctx.job_dir)
@@ -58,7 +60,9 @@ class ImageGenerateStage(Stage):
                     logger.warning("image_generate scene %d: no visual_prompt, skip", scene_id)
                     continue
 
-                prompt = self._build_prompt(visual_prompt, global_style)
+                scene_chars = scene.get("characters", [])
+                char_appearance = self._get_character_appearance(scene_chars, char_lookup)
+                prompt = self._build_prompt(visual_prompt, global_style, char_appearance)
                 if consistency_check:
                     char_desc = scene.get("character_description", "")
                     if char_desc:
@@ -68,7 +72,7 @@ class ImageGenerateStage(Stage):
                         prompt = f"{prompt}, from episode: {episode_title}"
                 out_path = ctx.artifact_path(scene_id, "image")
 
-                scene_seed = (seed + scene_id) if (seed and vary_seed) else seed
+                scene_seed = self._compute_scene_seed(seed, scene_id, vary_seed, scene_chars)
                 t_scene = time.time()
                 self._generate_image(
                     pipeline, prompt, width, height, steps, guidance, scene_seed, out_path,
@@ -115,14 +119,41 @@ class ImageGenerateStage(Stage):
             logger.warning("tiling_config not available in this mflux version, skipping")
 
     @staticmethod
-    def _build_prompt(visual_prompt: str, global_style: str) -> str:
+    def _build_prompt(visual_prompt: str, global_style: str, char_appearance: str = "") -> str:
         vp = (visual_prompt or "").strip()
         if not vp:
             raise ValueError("visual_prompt is empty")
         style = (global_style or "").strip()
+        parts = [vp]
+        if char_appearance:
+            parts.append(char_appearance)
         if style:
-            return f"{vp}, {style}"
-        return vp
+            parts.append(style)
+        return ", ".join(parts)
+
+    @staticmethod
+    def _get_character_appearance(scene_chars: list, char_lookup: dict) -> str:
+        if not scene_chars or not char_lookup:
+            return ""
+        appearances = []
+        for name in scene_chars:
+            c = char_lookup.get(name)
+            if c and c.get("appearance"):
+                appearances.append(c["appearance"])
+        if not appearances:
+            return ""
+        return "character appearance: " + "; ".join(appearances)
+
+    @staticmethod
+    def _compute_scene_seed(base_seed: int, scene_id: int, vary_seed: bool, scene_chars: list) -> int:
+        scene_seed = (base_seed + scene_id) if (base_seed and vary_seed) else base_seed
+        if scene_chars:
+            char_hash = 0
+            for name in scene_chars:
+                for ch in name:
+                    char_hash = (char_hash * 31 + ord(ch)) & 0x7FFFFFFF
+            scene_seed = (scene_seed or 0) + char_hash
+        return scene_seed
 
     @staticmethod
     def _generate_image(

@@ -198,11 +198,14 @@ class PipelineEngine:
             except Exception as exc:
                 logger.error("stage %s failed: %s", info.name, exc)
                 checkpoint.save(ctx)
+                model_mgr.shutdown()
                 raise
 
             ctx.completed_stages.append(info.name)
             checkpoint.save(ctx)
             logger.info("stage %s completed, checkpoint saved", info.name)
+
+        model_mgr.shutdown()
 
         final_video = ctx.get_artifact(0, "final")
         return PipelineResult(

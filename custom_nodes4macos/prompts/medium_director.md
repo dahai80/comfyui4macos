@@ -17,6 +17,13 @@
 {
   "story_title": "视频标题（不超过15字）",
   "global_style": "全局画风描述（英文，供图像生成用）",
+  "character_registry": [
+    {
+      "name": "角色名",
+      "appearance": "English appearance description: age, build, hair, clothing, distinguishing features",
+      "voice": "中文声音特征描述：音色、语速、语气特点"
+    }
+  ],
   "chapters": [
     {
       "chapter_id": 1,
@@ -27,9 +34,10 @@
     {
       "scene_id": 1,
       "chapter_id": 1,
-      "visual_prompt": "英文视觉提示词，供 Flux 生图：场景+人物+情绪+构图+光影，不带任何中文",
+      "visual_prompt": "英文视觉提示词，供 Flux 生图：场景+人物外观（来自registry）+情绪+构图+光影，不带任何中文",
       "audio_script": "本分镜的中文旁白文本，1-3句，叙事连贯",
       "sound_effect": "背景音效提示（英文短语，如 orchestral swell, rain on window, crowd murmur）",
+      "characters": ["角色名1"],
       "duration_seconds": 8
     }
   ]
@@ -38,10 +46,12 @@
 
 # 约束
 1. `scenes` 的数量必须等于用户指定的「目标分镜数」。
-2. 每个 `visual_prompt` 必须是英文，且包含具体的视觉叙事元素。
+2. 每个 `visual_prompt` 必须是英文，且包含具体的视觉叙事元素和出场角色的精确外观描述。
 3. `audio_script` 必须是中文，长度需与 `duration_seconds` 匹配（每秒约 4-5 字）。
 4. `duration_seconds` 取值 5-12 之间（中长篇节奏更从容）。
 5. 分镜叙事结构：引入→发展(多章节)→转折→高潮→尾声。
 6. 同一章节内场景应有视觉连贯性（色调、光影一致）。
 7. `global_style` 要与用户指定的「画风预设」一致并细化。
-8. 只输出 JSON，第一个字符必须是 `{`。
+8. **character_registry** 必须列出所有出场角色，同一角色在不同场景的 appearance 描述必须完全一致。
+9. **characters** 字段列出本镜出场角色名，必须与 character_registry 中的 name 完全一致。
+10. 只输出 JSON，第一个字符必须是 `{`。

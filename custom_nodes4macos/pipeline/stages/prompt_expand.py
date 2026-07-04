@@ -80,6 +80,8 @@ class PromptExpandStage(Stage):
             ctx.config["global_style"] = parsed["global_style"]
             logger.info("global_style from LLM: %s", parsed["global_style"])
 
+        self._merge_character_registry(ctx, parsed)
+
         ctx.scenes = scenes
         ctx.update_progress("prompt_expand", 1, 1)
         logger.info("prompt_expand done scenes=%d", len(scenes))
@@ -125,8 +127,10 @@ class PromptExpandStage(Stage):
             if ep_cliffhanger:
                 ep_seed += f"悬念结尾：{ep_cliffhanger}\n"
 
+            existing_registry = ctx.config.get("character_registry", [])
             user_msg = self._build_user_message(
                 ep_seed, ep_title, scene_count, style_preset, style_text,
+                character_registry=existing_registry,
             )
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -153,6 +157,12 @@ class PromptExpandStage(Stage):
             if "global_style" in parsed and "global_style" not in ctx.config:
                 ctx.config["global_style"] = parsed["global_style"]
                 logger.info("global_style from LLM: %s", parsed["global_style"])
+
+            self._merge_character_registry(ctx, parsed)
+
+            existing_registry = ctx.config.get("character_registry", [])
+            if existing_registry:
+                ctx.config["character_registry"] = existing_registry
 
             all_scenes.extend(scenes)
             ctx.scenes = all_scenes
@@ -195,6 +205,29 @@ class PromptExpandStage(Stage):
         return offset + len(scenes)
 
     @staticmethod
+    def _merge_character_registry(ctx, parsed: dict) -> None:
+        char_reg = parsed.get("character_registry") or parsed.get("character_descriptions")
+        if not char_reg:
+            return
+        existing = ctx.config.get("character_registry", [])
+        existing_names = {c.get("name") for c in existing}
+        for c in char_reg:
+            name = c.get("name")
+            if name and name not in existing_names:
+                existing.append(c)
+                existing_names.add(name)
+            elif name and name in existing_names:
+                for idx, ec in enumerate(existing):
+                    if ec.get("name") == name:
+                        if "appearance" not in ec and "appearance" in c:
+                            existing[idx]["appearance"] = c["appearance"]
+                        if "voice" not in ec and "voice" in c:
+                            existing[idx]["voice"] = c["voice"]
+                        break
+        ctx.config["character_registry"] = existing
+        logger.info("character_registry merged: %d characters", len(existing))
+
+    @staticmethod
     def _load_system_prompt(filename: str) -> str:
         if os.path.isfile(filename):
             with open(filename, "r", encoding="utf-8") as f:
@@ -212,15 +245,31 @@ class PromptExpandStage(Stage):
         scene_count: int,
         style_preset: str,
         style_text: str,
+        character_registry: list | None = None,
     ) -> str:
-        return (
+        msg = (
             "/no_think\n"
             f"故事种子：{story_seed.strip()}\n"
             f"剧集标题：{episode_title.strip() or '（待定）'}\n"
             f"目标分镜数：{scene_count}\n"
             f"画风预设：{style_preset}（{style_text}）\n"
-            f"请严格按 schema 输出 JSON，分镜数必须等于 {scene_count}。"
         )
+        if character_registry:
+            reg_lines = []
+            for c in character_registry:
+                name = c.get("name", "?")
+                appearance = c.get("appearance", "")
+                voice = c.get("voice", "")
+                line = f"  - {name}: appearance=\"{appearance}\""
+                if voice:
+                    line += f", voice=\"{voice}\""
+                reg_lines.append(line)
+            msg += (
+                f"已有角色注册表（必须严格沿用，不得修改外观描述）：\n"
+                + "\n".join(reg_lines) + "\n"
+            )
+        msg += f"请严格按 schema 输出 JSON，分镜数必须等于 {scene_count}。"
+        return msg
 
     @staticmethod
     def _generate(model, tokenizer, messages: list[dict], temperature: float) -> str:
