@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 from custom_nodes4macos.pipeline.context import PipelineContext
 from custom_nodes4macos.pipeline.stages.story_ingest import StoryIngestStage
 from custom_nodes4macos.pipeline.stages.digital_human_render import DigitalHumanRenderStage
+from custom_nodes4macos.pipeline.stages.avatar_create import AvatarCreateStage
+from custom_nodes4macos.pipeline.stages.avatar_animate import AvatarAnimateStage
 
 
 class TestStoryIngestStageInfo(unittest.TestCase):
@@ -213,7 +215,8 @@ class TestDigitalHumanRenderProcess(unittest.TestCase):
         stage.process(ctx, MagicMock())
         mock_fallback.assert_called_once()
 
-    def test_process_raises_with_lip_sync_model(self):
+    @patch("custom_nodes4macos.pipeline.stages.digital_human_render.DigitalHumanRenderStage._render_fallback")
+    def test_process_uses_fallback_with_lip_sync_no_avatar_package(self, mock_fallback):
         tmpdir = tempfile.mkdtemp()
         ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
             "lip_sync_model": "wav2lip",
@@ -221,8 +224,23 @@ class TestDigitalHumanRenderProcess(unittest.TestCase):
         ctx.scenes = [{"scene_id": 1}]
 
         stage = DigitalHumanRenderStage()
-        with self.assertRaises(NotImplementedError):
-            stage.process(ctx, MagicMock())
+        stage.process(ctx, MagicMock())
+        mock_fallback.assert_called_once()
+
+    @patch("custom_nodes4macos.pipeline.stages.digital_human_render.DigitalHumanRenderStage._render_with_avatar")
+    def test_process_delegates_to_avatar_when_package_exists(self, mock_avatar_render):
+        tmpdir = tempfile.mkdtemp()
+        avatar_dir = os.path.join(tmpdir, "_avatar")
+        os.makedirs(avatar_dir, exist_ok=True)
+
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+            "avatar_package": avatar_dir,
+        })
+        ctx.scenes = [{"scene_id": 1}]
+
+        stage = DigitalHumanRenderStage()
+        stage.process(ctx, MagicMock())
+        mock_avatar_render.assert_called_once()
 
     @patch("custom_nodes4macos.ffmpeg_util.run_ffmpeg")
     @patch("custom_nodes4macos.pipeline.stages.digital_human_render.DigitalHumanRenderStage._generate_placeholder_avatar")
@@ -252,6 +270,186 @@ class TestDigitalHumanRenderProcess(unittest.TestCase):
         stage = DigitalHumanRenderStage()
         stage._render_fallback(ctx, "")
         mock_ffmpeg.assert_called_once()
+
+
+class TestAvatarCreateStageInfo(unittest.TestCase):
+
+    def test_info(self):
+        info = AvatarCreateStage.info()
+        self.assertEqual(info.name, "avatar_create")
+        self.assertEqual(info.model_requirements, [])
+        self.assertEqual(info.output_kinds, ["avatar_package"])
+
+    def test_skip_if_completed(self):
+        stage = AvatarCreateStage()
+        ctx = PipelineContext(job_id="test", job_dir="/tmp", config={})
+        ctx.completed_stages = ["avatar_create"]
+        self.assertTrue(stage._skip_if_completed(ctx))
+
+
+class TestAvatarCreateProcess(unittest.TestCase):
+
+    def test_process_no_photo_no_video_generates_placeholder(self):
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={})
+        ctx.scenes = []
+
+        stage = AvatarCreateStage()
+        stage.process(ctx, MagicMock())
+
+        avatar_dir = os.path.join(tmpdir, "_avatar")
+        self.assertTrue(os.path.isdir(avatar_dir))
+        self.assertTrue(os.path.isfile(os.path.join(avatar_dir, "reference.png")))
+        self.assertTrue(os.path.isfile(os.path.join(avatar_dir, "avatar_meta.json")))
+        self.assertEqual(ctx.artifacts.get("avatar_package"), avatar_dir)
+
+    def test_process_with_photo(self):
+        import cv2
+        import numpy as np
+
+        photo_dir = tempfile.mkdtemp()
+        photo_path = os.path.join(photo_dir, "face.png")
+        face_img = np.zeros((512, 512, 3), dtype=np.uint8)
+        cv2.rectangle(face_img, (180, 120), (332, 300), (200, 200, 200), -1)
+        cv2.circle(face_img, (220, 180), 15, (100, 100, 255), -1)
+        cv2.circle(face_img, (292, 180), 15, (100, 100, 255), -1)
+        cv2.imwrite(photo_path, face_img)
+
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+            "avatar_photo": photo_path,
+            "avatar_style": "realistic",
+        })
+        ctx.scenes = []
+
+        stage = AvatarCreateStage()
+        stage.process(ctx, MagicMock())
+
+        avatar_dir = os.path.join(tmpdir, "_avatar")
+        self.assertTrue(os.path.isfile(os.path.join(avatar_dir, "reference.png")))
+
+        meta_path = os.path.join(avatar_dir, "avatar_meta.json")
+        with open(meta_path) as f:
+            meta = json.load(f)
+        self.assertEqual(meta.get("avatar_style"), "realistic")
+        self.assertIn("reference_frame", meta)
+
+    def test_cartoon_style(self):
+        import cv2
+        import numpy as np
+
+        photo_dir = tempfile.mkdtemp()
+        photo_path = os.path.join(photo_dir, "face.png")
+        face_img = np.random.randint(0, 255, (512, 512, 3), dtype=np.uint8)
+        cv2.rectangle(face_img, (180, 120), (332, 300), (200, 200, 200), -1)
+        cv2.imwrite(photo_path, face_img)
+
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+            "avatar_photo": photo_path,
+            "avatar_style": "cartoon",
+        })
+        ctx.scenes = []
+
+        stage = AvatarCreateStage()
+        stage.process(ctx, MagicMock())
+
+        avatar_dir = os.path.join(tmpdir, "_avatar")
+        self.assertTrue(os.path.isfile(os.path.join(avatar_dir, "reference.png")))
+
+    def test_placeholder_avatar_is_valid_image(self):
+        import numpy as np
+
+        img = AvatarCreateStage._generate_placeholder("/tmp")
+        self.assertEqual(img.shape, (512, 512, 3))
+        self.assertEqual(img.dtype, np.uint8)
+
+
+class TestAvatarAnimateStageInfo(unittest.TestCase):
+
+    def test_info(self):
+        info = AvatarAnimateStage.info()
+        self.assertEqual(info.name, "avatar_animate")
+        self.assertEqual(info.model_requirements, [])
+        self.assertEqual(info.input_kinds, ["avatar_package", "audio"])
+        self.assertEqual(info.output_kinds, ["clip"])
+
+    def test_skip_if_completed(self):
+        stage = AvatarAnimateStage()
+        ctx = PipelineContext(job_id="test", job_dir="/tmp", config={})
+        ctx.completed_stages = ["avatar_animate"]
+        self.assertTrue(stage._skip_if_completed(ctx))
+
+
+class TestAvatarAnimateAudioEnergy(unittest.TestCase):
+
+    def test_analyze_audio_energy_valid_wav(self):
+        import struct
+        import wave
+
+        tmpdir = tempfile.mkdtemp()
+        wav_path = os.path.join(tmpdir, "test.wav")
+
+        framerate = 16000
+        duration = 1
+        n_samples = framerate * duration
+        samples = []
+        for i in range(n_samples):
+            val = int(16384 * (1 if (i % 800 < 400) else -1))
+            samples.append(struct.pack("<h", val))
+
+        with wave.open(wav_path, "w") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(framerate)
+            wf.writeframes(b"".join(samples))
+
+        stage = AvatarAnimateStage()
+        energy = stage._analyze_audio_energy(wav_path)
+
+        self.assertIsInstance(energy, list)
+        self.assertGreater(len(energy), 0)
+        self.assertTrue(all(0 <= e <= 1.0 for e in energy))
+
+    def test_analyze_audio_energy_invalid_file(self):
+        stage = AvatarAnimateStage()
+        energy = stage._analyze_audio_energy("/nonexistent/file.wav")
+        self.assertEqual(energy, [])
+
+
+class TestAvatarAnimateMouthRegion(unittest.TestCase):
+
+    def test_estimate_from_landmarks(self):
+        import numpy as np
+
+        stage = AvatarAnimateStage()
+        img = np.zeros((512, 512, 3), dtype=np.uint8)
+        landmarks = {
+            "mouth_left": [200, 350],
+            "mouth_right": [300, 350],
+            "mouth_center": [250, 350],
+        }
+        result = stage._estimate_mouth_region(img, landmarks, [])
+        self.assertIsNotNone(result)
+        self.assertIn("x1", result)
+        self.assertIn("center_x", result)
+
+    def test_estimate_from_bbox(self):
+        import numpy as np
+
+        stage = AvatarAnimateStage()
+        img = np.zeros((512, 512, 3), dtype=np.uint8)
+        result = stage._estimate_mouth_region(img, {}, [100, 80, 200, 250])
+        self.assertIsNotNone(result)
+        self.assertIn("mouth_width", result)
+
+    def test_estimate_returns_none_no_data(self):
+        import numpy as np
+
+        stage = AvatarAnimateStage()
+        img = np.zeros((512, 512, 3), dtype=np.uint8)
+        result = stage._estimate_mouth_region(img, {}, [])
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

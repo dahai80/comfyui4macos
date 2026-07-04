@@ -31,6 +31,7 @@ EXPECTED_CONTENT_TYPES = {
 IMPLEMENTED_STAGES = {
     "story_ingest", "prompt_expand", "image_generate",
     "tts_synthesize", "ken_burns", "assemble", "digital_human_render",
+    "avatar_create", "avatar_animate",
 }
 
 
@@ -103,10 +104,11 @@ class TestTemplateStagesConsistency(unittest.TestCase):
         data = self.templates["series.yaml"]
         self.assertEqual(data["stages"][0], "story_ingest")
 
-    def test_digital_human_includes_digital_human_render(self):
-        """digital_human 必须含 digital_human_render。"""
+    def test_digital_human_includes_avatar_stages(self):
+        """digital_human 必须含 avatar_create 和 avatar_animate。"""
         data = self.templates["digital_human.yaml"]
-        self.assertIn("digital_human_render", data["stages"])
+        self.assertIn("avatar_create", data["stages"])
+        self.assertIn("avatar_animate", data["stages"])
 
     def test_all_templates_end_with_assemble(self):
         """所有内容类型最终以 assemble 收尾产出 final。"""
