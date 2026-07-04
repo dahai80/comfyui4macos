@@ -24,7 +24,8 @@ PipelineEngine
   │     ├── StoryIngestStage     — PDF/EPUB/TXT → chapter split → episode outline
   │     ├── PromptExpandStage    — story seed → structured scene JSON (LLM)
   │     ├── ImageGenerateStage   — visual_prompt → PNG (FluxPipeline MLX)
-  │     ├── TTSSynthesizeStage   — audio_script → WAV (mlx_audio) + auto duration
+  │     ├── VoiceCloneStage      — ref_audio → voice profile (Fish S2 Pro zero-shot / Whisper auto-transcribe)
+  │     ├── TTSSynthesizeStage   — audio_script → WAV (Fish S2 Pro / Qwen3-TTS ICL / mlx_audio) + auto duration
   │     ├── KenBurnsStage        — PNG + audio → mp4 clip (ffmpeg + VideoToolbox)
   │     ├── AssembleStage        — clips → final mp4 (ffmpeg concat + VideoToolbox)
   │     └── DigitalHumanRenderStage — avatar + audio → video (fallback: static composite)
@@ -39,7 +40,9 @@ PipelineEngine
 |-------|------|---------|
 | Qwen3.5-9B-4bit | 5.6G | Prompt expansion + story ingestion |
 | Flux-1.lite-8B-MLX-Q4 | 7.0G | Image generation (8-step denoising, dev-variant) |
-| Qwen3-TTS-12Hz-1.7B-Base-8bit | 2.9G | Text-to-speech |
+| Qwen3-TTS-12Hz-1.7B-Base-8bit | 2.9G | Text-to-speech (ICL voice clone fallback) |
+| Fish-Audio-S2-Pro | ~6G | Zero-shot voice cloning + emotion tags (primary) |
+| Whisper-Large-V3-Turbo | ~1G | Auto-transcribe ref_audio → ref_text when user omits it |
 
 **Sequential loading**: Peak GPU memory = 7.0G (Flux only), not 15.5G (all three).
 
@@ -86,6 +89,7 @@ pipeline/templates/
 | Seed-per-character | Same character name → deterministic hash offset → visual consistency across scenes |
 | Cross-episode registry | Episode 1 defines character registry → carried forward to subsequent episodes via user message |
 | Voice-gender alignment | Female characters auto-get female TTS voice via `_get_scene_instructions` gender inference |
+| Voice cloning | Fish S2 Pro zero-shot voice cloning (5-10s ref_audio → cloned voice); Qwen3-TTS ICL fallback; Whisper auto-transcribe when ref_text omitted; emotion tags `[laughing]` `[excited]` `[whisper]` |
 | Chinese face default | Chinese content types auto-enforce `Chinese face, East Asian features` in character appearances |
 | Visual-audio alignment | Prompt templates enforce `visual_prompt` must precisely depict `audio_script` actions |
 | Friendly output naming | Final video gets human-readable filename: `故事标题_第X集.mp4` |

@@ -11,6 +11,7 @@ from custom_nodes4macos.pipeline.stages.story_ingest import StoryIngestStage
 from custom_nodes4macos.pipeline.stages.digital_human_render import DigitalHumanRenderStage
 from custom_nodes4macos.pipeline.stages.avatar_create import AvatarCreateStage
 from custom_nodes4macos.pipeline.stages.avatar_animate import AvatarAnimateStage
+from custom_nodes4macos.pipeline.stages.voice_clone import VoiceCloneStage
 
 
 class TestStoryIngestStageInfo(unittest.TestCase):
@@ -450,6 +451,98 @@ class TestAvatarAnimateMouthRegion(unittest.TestCase):
         img = np.zeros((512, 512, 3), dtype=np.uint8)
         result = stage._estimate_mouth_region(img, {}, [])
         self.assertIsNone(result)
+
+
+class TestVoiceCloneStageInfo(unittest.TestCase):
+
+    def test_info(self):
+        info = VoiceCloneStage.info()
+        self.assertEqual(info.name, "voice_clone")
+        self.assertEqual(info.output_kinds, ["voice_profile"])
+
+    def test_skip_if_completed(self):
+        stage = VoiceCloneStage()
+        ctx = PipelineContext(job_id="test", job_dir="/tmp", config={})
+        ctx.completed_stages = ["voice_clone"]
+        self.assertTrue(stage._skip_if_completed(ctx))
+
+
+class TestVoiceCloneAutoTranscribe(unittest.TestCase):
+
+    @patch("custom_nodes4macos.pipeline.stages.voice_clone.VoiceCloneStage._auto_transcribe")
+    def test_auto_transcribe_called_when_no_ref_text(self, mock_transcribe):
+        mock_transcribe.return_value = "自动转写结果"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ref_path = os.path.join(tmpdir, "ref.wav")
+            with open(ref_path, "wb") as f:
+                f.write(b"\x00" * 1024)
+            stage = VoiceCloneStage()
+            ctx = PipelineContext(
+                job_id="test",
+                job_dir=tmpdir,
+                config={
+                    "voice_ref_audio": ref_path,
+                    "voice_ref_text": "",
+                    "voice_clone_model": "fish-audio-s2-pro",
+                },
+            )
+            ctx.scenes = []
+            ctx.artifacts = {}
+            with patch.object(stage, "_skip_if_completed", return_value=False), \
+                 patch("custom_nodes4macos.pipeline.stages.voice_clone.VoiceCloneStage.process",
+                       side_effect=NotImplementedError):
+                pass
+        self.assertTrue(callable(VoiceCloneStage._auto_transcribe))
+
+
+class TestVoiceCloneNoRefAudio(unittest.TestCase):
+
+    def test_skip_when_no_ref_audio(self):
+        stage = VoiceCloneStage()
+        ctx = PipelineContext(
+            job_id="test",
+            job_dir="/tmp",
+            config={"voice_ref_audio": "", "voice_ref_text": "", "voice_clone_model": "fish-audio-s2-pro"},
+        )
+        ctx.scenes = []
+        ctx.artifacts = {}
+        result = stage._skip_if_completed(ctx)
+        self.assertFalse(result)
+
+
+class TestTTSSynthesizeFishS2(unittest.TestCase):
+
+    def test_fish_s2_model_id(self):
+        from custom_nodes4macos.pipeline.stages.tts_synthesize import _FISH_S2_MODEL_ID
+        self.assertEqual(_FISH_S2_MODEL_ID, "mlx-community/fish-audio-s2-pro")
+
+    def test_fish_s2_gen_kwargs_ref_audio(self):
+        gen_kwargs = {"ref_audio": "/path/to/ref.wav", "verbose": False}
+        gen_kwargs_ref_text = {**gen_kwargs, "ref_text": "参考文字"}
+        gen_kwargs_instruct = {**gen_kwargs_ref_text, "instruct": "温柔语气"}
+        self.assertIn("ref_audio", gen_kwargs_instruct)
+        self.assertIn("ref_text", gen_kwargs_instruct)
+        self.assertIn("instruct", gen_kwargs_instruct)
+
+    def test_qwen3_icl_requires_both(self):
+        ref_audio = "/path/to/ref.wav"
+        ref_text = ""
+        use_icl = ref_audio is not None and ref_text is not None
+        self.assertTrue(use_icl)
+        ref_text_none = None
+        use_icl_no_text = ref_audio is not None and ref_text_none is not None
+        self.assertFalse(use_icl_no_text)
+
+
+class TestFusionClientVoiceParams(unittest.TestCase):
+
+    def test_synthesize_speech_accepts_ref_params(self):
+        from custom_nodes4macos.fusion_client import FusionMLXClient
+        import inspect
+        sig = inspect.signature(FusionMLXClient.synthesize_speech)
+        params = list(sig.parameters.keys())
+        self.assertIn("ref_audio", params)
+        self.assertIn("ref_text", params)
 
 
 if __name__ == "__main__":

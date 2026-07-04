@@ -31,7 +31,7 @@ EXPECTED_CONTENT_TYPES = {
 IMPLEMENTED_STAGES = {
     "story_ingest", "prompt_expand", "image_generate",
     "tts_synthesize", "ken_burns", "assemble", "digital_human_render",
-    "avatar_create", "avatar_animate",
+    "avatar_create", "avatar_animate", "voice_clone",
 }
 
 

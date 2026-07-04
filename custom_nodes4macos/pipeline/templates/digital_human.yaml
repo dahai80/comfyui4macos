@@ -1,7 +1,7 @@
 name: digital_human
 content_type: digital_human
 description: "数字人：照片/视频 → 形象包 → TTS语音 → 面部动画视频"
-stages: [avatar_create, prompt_expand, tts_synthesize, avatar_animate, assemble]
+stages: [avatar_create, voice_clone, prompt_expand, tts_synthesize, avatar_animate, assemble]
 defaults:
   scene_count: 8
   style_preset: "写实人像"
@@ -10,6 +10,9 @@ defaults:
   avatar_video: ""
   avatar_style: "realistic"
   avatar_reference: ""
+  voice_ref_audio: ""
+  voice_ref_text: ""
+  voice_clone_model: "fish-audio-s2-pro"
 prompts:
   system_prompt_file: "digital_human_director.md"
 style_presets:

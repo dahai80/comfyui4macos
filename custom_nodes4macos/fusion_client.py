@@ -185,6 +185,8 @@ class FusionMLXClient:
         response_format: str = "wav",
         stream: bool = False,
         timeout: float | None = None,
+        ref_audio: str | None = None,
+        ref_text: str | None = None,
     ) -> bytes:
         payload: dict[str, Any] = {
             "model": model,
@@ -198,9 +200,13 @@ class FusionMLXClient:
             payload["instructions"] = instructions
         if speed is not None:
             payload["speed"] = speed
+        if ref_audio:
+            payload["ref_audio"] = ref_audio
+        if ref_text:
+            payload["ref_text"] = ref_text
         logger.info(
-            "synthesize_speech model=%s voice=%s speed=%.2f text_len=%d stream=%s",
-            model, voice, speed, len(text), stream,
+            "synthesize_speech model=%s voice=%s speed=%.2f text_len=%d stream=%s ref_audio=%s",
+            model, voice, speed, len(text), stream, bool(ref_audio),
         )
         resp = self._request("POST", "/v1/audio/speech", json_body=payload, timeout=timeout)
         if resp.status_code != 200:
