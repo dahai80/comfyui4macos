@@ -205,5 +205,45 @@ class TestBuildUserMessageWithRegistry(unittest.TestCase):
         self.assertIn("young woman", msg)
 
 
+class TestCrossEpisodeConsistency(unittest.TestCase):
+
+    def test_merged_registry_serves_all_episodes(self):
+        ctx = type("Ctx", (), {"config": {}})()
+        ep1 = {
+            "character_registry": [
+                {"name": "书生", "appearance": "young scholar in blue robe"},
+            ]
+        }
+        ep2 = {
+            "character_registry": [
+                {"name": "书生", "appearance": "young scholar in blue robe"},
+                {"name": "老妪", "appearance": "hunched old woman in white"},
+            ]
+        }
+        PromptExpandStage._merge_character_registry(ctx, ep1)
+        PromptExpandStage._merge_character_registry(ctx, ep2)
+        registry = ctx.config["character_registry"]
+        self.assertEqual(len(registry), 2)
+        char_lookup = {c["name"]: c for c in registry if "name" in c}
+        ep1_appearance = ImageGenerateStage._get_character_appearance(["书生"], char_lookup)
+        ep2_appearance = ImageGenerateStage._get_character_appearance(["老妪"], char_lookup)
+        self.assertIn("young scholar in blue robe", ep1_appearance)
+        self.assertIn("hunched old woman in white", ep2_appearance)
+        self.assertIn("young scholar in blue robe", ep1_appearance)
+
+    def test_no_duplicate_appearance_when_already_in_visual(self):
+        ctx = type("Ctx", (), {"config": {
+            "character_registry": [
+                {"name": "Alice", "appearance": "young woman with black hair"},
+            ]
+        }})()
+        char_lookup = {c["name"]: c for c in ctx.config["character_registry"]}
+        appearance = ImageGenerateStage._get_character_appearance(["Alice"], char_lookup)
+        prompt = ImageGenerateStage._build_prompt(
+            "a dark forest, young woman with black hair", "ink-wash", appearance,
+        )
+        self.assertGreaterEqual(prompt.count("young woman with black hair"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

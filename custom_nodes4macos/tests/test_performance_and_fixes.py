@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from custom_nodes4macos.pipeline.context import PipelineContext
 from custom_nodes4macos.pipeline.checkpoint import CheckpointManager, CheckpointData
-from custom_nodes4macos.pipeline.model_manager import ModelManager, ModelMode, ModelHandle
 from custom_nodes4macos.pipeline.stage import Stage, StageInfo
 from custom_nodes4macos.pipeline.engine import PipelineEngine, register_stage, _STAGE_REGISTRY
 
@@ -103,55 +102,6 @@ class TestCheckpointManagerOverrides(unittest.TestCase):
         self.assertEqual(ctx.completed_stages, ["prompt_expand", "image_generate"])
         self.assertEqual(ctx.scenes, [{"scene_id": 1}])
         self.assertEqual(ctx.artifacts, {"1_image": "/tmp/img.png"})
-
-
-class TestModelManagerSequentialTracking(unittest.TestCase):
-
-    def test_sequential_mode_increments_usage(self):
-        mgr = ModelManager(mode=ModelMode.SEQUENTIAL, memory_budget_gb=20.0)
-        self.assertEqual(mgr.current_usage_gb, 0.0)
-        mock_model = MagicMock()
-        with patch.object(ModelManager, "_load_llm", return_value=mock_model):
-            with mgr.acquire("llm") as handle:
-                self.assertIsInstance(handle, ModelHandle)
-                self.assertEqual(handle.name, "llm")
-                self.assertEqual(mgr.current_usage_gb, 5.6)
-
-    def test_sequential_mode_releases_on_exit(self):
-        mgr = ModelManager(mode=ModelMode.SEQUENTIAL, memory_budget_gb=20.0)
-        mock_model = MagicMock()
-        with patch.object(ModelManager, "_load_llm", return_value=mock_model):
-            with mgr.acquire("llm") as handle:
-                pass
-        self.assertEqual(mgr.current_usage_gb, 0.0)
-
-    def test_resident_mode_keeps_loaded(self):
-        mgr = ModelManager(mode=ModelMode.RESIDENT, memory_budget_gb=20.0)
-        mock_model = MagicMock()
-        with patch.object(ModelManager, "_load_llm", return_value=mock_model):
-            with mgr.acquire("llm") as handle:
-                pass
-        self.assertEqual(mgr.current_usage_gb, 5.6)
-
-    def test_memory_budget_enforcement(self):
-        mgr = ModelManager(mode=ModelMode.SEQUENTIAL, memory_budget_gb=5.0)
-        mock_model = MagicMock()
-        with patch.object(ModelManager, "_load_llm", return_value=mock_model):
-            with self.assertRaises(MemoryError):
-                with mgr.acquire("llm") as handle:
-                    pass
-
-    def test_unknown_model_raises(self):
-        mgr = ModelManager(mode=ModelMode.SEQUENTIAL, memory_budget_gb=20.0)
-        with self.assertRaises(ValueError):
-            with mgr.acquire("nonexistent_model") as handle:
-                pass
-
-    def test_release_underflow_protection(self):
-        mgr = ModelManager(mode=ModelMode.SEQUENTIAL, memory_budget_gb=20.0)
-        mgr._current_usage = 1.0
-        mgr.release("llm")
-        self.assertEqual(mgr.current_usage_gb, 0.0)
 
 
 class TestEngineOverridesNoRecursion(unittest.TestCase):

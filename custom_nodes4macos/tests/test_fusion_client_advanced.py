@@ -263,5 +263,39 @@ class TestClientContextManager(unittest.TestCase):
             mock_client.close.assert_called_once()
 
 
+class TestGenerateImageReferencePayload(unittest.TestCase):
+    """generate_image 在提供参考图时把字段写入 payload，否则省略（前向兼容）。"""
+
+    def _client_with_200(self):
+        import base64
+        with patch("httpx.Client") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            client = FusionMLXClient()
+        b64 = base64.b64encode(b"\x89PNG fake").decode("ascii")
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"data": [{"b64_json": b64}]}
+        client._request = MagicMock(return_value=resp)
+        return client
+
+    def test_reference_fields_omitted_by_default(self):
+        client = self._client_with_200()
+        client.generate_image(prompt="p", width=64, height=64)
+        payload = client._request.call_args.kwargs.get("json_body")
+        self.assertNotIn("reference_image", payload)
+        self.assertNotIn("reference_strength", payload)
+        self.assertNotIn("conditioning_mode", payload)
+
+    def test_reference_fields_included_when_provided(self):
+        client = self._client_with_200()
+        client.generate_image(
+            prompt="p", width=64, height=64,
+            reference_image="REFB64", reference_strength=0.7, conditioning_mode="redux",
+        )
+        payload = client._request.call_args.kwargs.get("json_body")
+        self.assertEqual(payload["reference_image"], "REFB64")
+        self.assertEqual(payload["reference_strength"], 0.7)
+        self.assertEqual(payload["conditioning_mode"], "redux")
+
+
 if __name__ == "__main__":
     unittest.main()

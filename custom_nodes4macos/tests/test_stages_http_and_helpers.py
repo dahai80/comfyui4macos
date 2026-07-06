@@ -16,59 +16,36 @@ from unittest.mock import MagicMock, patch
 class TestImageGenerateHttpFallback(unittest.TestCase):
     """覆盖 image_generate._generate_http。"""
 
-    @patch("custom_nodes4macos.fusion_client.FusionMLXClient")
-    def test_generate_http_saves_image(self, mock_cls):
+    def test_generate_http_saves_image(self):
         from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
         from PIL import Image
         import io
-        # 构造真实 PNG bytes
         img = Image.new("RGB", (4, 4), (50, 100, 150))
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         png_bytes = buf.getvalue()
 
-        mock_client = MagicMock()
-        mock_client.health.return_value = True
-        mock_client.generate_image.return_value = [png_bytes]
-        mock_cls.return_value.__enter__.return_value = mock_client
+        handle = MagicMock()
+        handle.client.generate_image.return_value = [png_bytes]
+        handle.model_name = "flux-test"
 
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
             out_path = tf.name
         try:
-            ImageGenerateStage._generate_http("prompt", 64, 64, 4, 4.0, 0, out_path)
+            ImageGenerateStage._generate_http(handle, "prompt", 64, 64, 4, 4.0, 0, out_path)
             self.assertTrue(os.path.exists(out_path))
             self.assertGreater(os.path.getsize(out_path), 0)
         finally:
             os.unlink(out_path)
 
-    @patch("custom_nodes4macos.fusion_client.FusionMLXClient")
-    def test_generate_http_unreachable_raises(self, mock_cls):
+    def test_generate_http_empty_result_raises(self):
         from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
-        mock_client = MagicMock()
-        mock_client.health.return_value = False
-        mock_cls.return_value.__enter__.return_value = mock_client
+        handle = MagicMock()
+        handle.client.generate_image.return_value = []
+        handle.model_name = "flux-test"
         with self.assertRaises(RuntimeError) as cm:
-            ImageGenerateStage._generate_http("p", 64, 64, 4, 4.0, 0, "/tmp/out.png")
-        self.assertIn("unreachable", str(cm.exception))
-
-    @patch("custom_nodes4macos.fusion_client.FusionMLXClient")
-    def test_generate_http_empty_result_raises(self, mock_cls):
-        from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
-        mock_client = MagicMock()
-        mock_client.health.return_value = True
-        mock_client.generate_image.return_value = []
-        mock_cls.return_value.__enter__.return_value = mock_client
-        with self.assertRaises(RuntimeError) as cm:
-            ImageGenerateStage._generate_http("p", 64, 64, 4, 4.0, 0, "/tmp/out.png")
+            ImageGenerateStage._generate_http(handle, "p", 64, 64, 4, 4.0, 0, "/tmp/out.png")
         self.assertIn("empty", str(cm.exception))
-
-    def test_generate_image_falls_back_on_import_error(self):
-        """_generate_mlx 抛 ImportError 时回退到 _generate_http。"""
-        from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
-        with patch.object(ImageGenerateStage, "_generate_mlx", side_effect=ImportError("no mlx")):
-            with patch.object(ImageGenerateStage, "_generate_http") as mock_http:
-                ImageGenerateStage._generate_image(MagicMock(), "p", 64, 64, 4, 4.0, 0, "/tmp/x.png")
-                mock_http.assert_called_once()
 
     def test_build_prompt_empty_raises(self):
         from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
@@ -86,48 +63,26 @@ class TestImageGenerateHttpFallback(unittest.TestCase):
 
 class TestTtsSynthesizeHttpFallback(unittest.TestCase):
 
-    @patch("custom_nodes4macos.fusion_client.FusionMLXClient")
-    def test_synthesize_http_saves_audio(self, mock_cls):
+    def test_synthesize_http_saves_audio(self):
         from custom_nodes4macos.pipeline.stages.tts_synthesize import TTSSynthesizeStage
-        mock_client = MagicMock()
-        mock_client.health.return_value = True
-        mock_client.synthesize_speech.return_value = b"RIFF...WAV"
-        mock_cls.return_value.__enter__.return_value = mock_client
+        handle = MagicMock()
+        handle.client.synthesize_speech.return_value = b"RIFF...WAV"
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
             out_path = tf.name
         try:
-            TTSSynthesizeStage._synthesize_http("text", "", "", 1.0, out_path)
+            TTSSynthesizeStage._synthesize_http(handle, "tts-model", "text", "", "", 1.0, out_path)
             self.assertTrue(os.path.exists(out_path))
             with open(out_path, "rb") as f:
                 self.assertTrue(f.read().startswith(b"RIFF"))
         finally:
             os.unlink(out_path)
 
-    @patch("custom_nodes4macos.fusion_client.FusionMLXClient")
-    def test_synthesize_http_unreachable_raises(self, mock_cls):
+    def test_synthesize_http_empty_raises(self):
         from custom_nodes4macos.pipeline.stages.tts_synthesize import TTSSynthesizeStage
-        mock_client = MagicMock()
-        mock_client.health.return_value = False
-        mock_cls.return_value.__enter__.return_value = mock_client
+        handle = MagicMock()
+        handle.client.synthesize_speech.return_value = b""
         with self.assertRaises(RuntimeError):
-            TTSSynthesizeStage._synthesize_http("t", "", "", 1.0, "/tmp/x.wav")
-
-    @patch("custom_nodes4macos.fusion_client.FusionMLXClient")
-    def test_synthesize_http_empty_raises(self, mock_cls):
-        from custom_nodes4macos.pipeline.stages.tts_synthesize import TTSSynthesizeStage
-        mock_client = MagicMock()
-        mock_client.health.return_value = True
-        mock_client.synthesize_speech.return_value = b""
-        mock_cls.return_value.__enter__.return_value = mock_client
-        with self.assertRaises(RuntimeError):
-            TTSSynthesizeStage._synthesize_http("t", "", "", 1.0, "/tmp/x.wav")
-
-    def test_synthesize_falls_back_on_import_error(self):
-        from custom_nodes4macos.pipeline.stages.tts_synthesize import TTSSynthesizeStage
-        with patch.object(TTSSynthesizeStage, "_synthesize_mlx", side_effect=ImportError("no mlx_audio")):
-            with patch.object(TTSSynthesizeStage, "_synthesize_http") as mock_http:
-                TTSSynthesizeStage._synthesize(MagicMock(), "t", "", "", 1.0, "/tmp/x.wav")
-                mock_http.assert_called_once()
+            TTSSynthesizeStage._synthesize_http(handle, "tts-model", "t", "", "", 1.0, "/tmp/x.wav")
 
 
 class TestPromptExpandHelpers(unittest.TestCase):
@@ -284,6 +239,117 @@ class TestPromptExpandProcessEpisodes(unittest.TestCase):
         raw_path = os.path.join(tmpdir, "_prompt_expand_ep1_raw.txt")
         self.assertTrue(os.path.exists(raw_path))
 
+    def test_process_episodes_retries_on_generate_failure(self):
+        """_generate 抛错时重试，第三次成功则正常产出。"""
+        from custom_nodes4macos.pipeline.stages.prompt_expand import PromptExpandStage
+        from custom_nodes4macos.pipeline.context import PipelineContext
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="t", job_dir=tmpdir, config={
+            "episodes": [{"episode_id": 1, "title": "E1", "synopsis": "s", "key_scenes": [], "cliffhanger": ""}],
+            "scene_count": 1,
+            "style_preset": "",
+            "style_presets": {},
+        })
+        call_count = {"n": 0}
+
+        def flaky(handle, messages, temperature):
+            call_count["n"] += 1
+            if call_count["n"] < 3:
+                raise RuntimeError("simulated timeout")
+            return '{"scenes":[{"visual_prompt":"ok"}]}'
+
+        with patch.object(PromptExpandStage, "_generate", side_effect=flaky):
+            mock_mgr = MagicMock()
+            mock_handle = MagicMock()
+            mock_handle.model = (MagicMock(), MagicMock())
+            mock_mgr.acquire.return_value.__enter__.return_value = mock_handle
+            stage = PromptExpandStage()
+            stage.process(ctx, mock_mgr)
+        self.assertEqual(call_count["n"], 3)
+        self.assertEqual(len(ctx.scenes), 1)
+        self.assertEqual(ctx.scenes[0]["visual_prompt"], "ok")
+
+    def test_process_episodes_fallback_after_all_attempts_fail(self):
+        """3 次 _generate 全抛错 → 走西游记 fallback，不崩溃。"""
+        from custom_nodes4macos.pipeline.stages.prompt_expand import PromptExpandStage
+        from custom_nodes4macos.pipeline.context import PipelineContext
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="t", job_dir=tmpdir, config={
+            "episodes": [{"episode_id": 1, "title": "E1", "synopsis": "s", "key_scenes": [], "cliffhanger": ""}],
+            "scene_count": 2,
+            "style_preset": "",
+            "style_presets": {},
+        })
+        with patch.object(PromptExpandStage, "_generate", side_effect=RuntimeError("hard timeout")):
+            mock_mgr = MagicMock()
+            mock_handle = MagicMock()
+            mock_handle.model = (MagicMock(), MagicMock())
+            mock_mgr.acquire.return_value.__enter__.return_value = mock_handle
+            stage = PromptExpandStage()
+            stage.process(ctx, mock_mgr)
+        self.assertGreaterEqual(len(ctx.scenes), 1)
+        fb_path = os.path.join(tmpdir, "_prompt_expand_ep1_fallback.json")
+        self.assertTrue(os.path.exists(fb_path), "fallback json should be written")
+
+
+class TestPromptExpandProcessSingle(unittest.TestCase):
+    """覆盖 process() 单集分支的重试与 fallback。
+
+    之前单集路径直接 _parse_and_validate_raw 无重试，LLM 返回坏 JSON 会抛
+    JSONDecodeError 直接崩掉整个 job；现在与连载分支共用 _generate_with_retry。
+    """
+
+    def test_process_single_retries_on_parse_failure_then_succeeds(self):
+        from custom_nodes4macos.pipeline.stages.prompt_expand import PromptExpandStage
+        from custom_nodes4macos.pipeline.context import PipelineContext
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="t", job_dir=tmpdir, config={
+            "story_seed": "深夜赶路遇白衣女子",
+            "scene_count": 1,
+            "style_preset": "",
+            "style_presets": {},
+        })
+        call_count = {"n": 0}
+
+        def flaky(handle, messages, temperature):
+            call_count["n"] += 1
+            if call_count["n"] < 3:
+                return "totally not json at all"
+            return '{"scenes":[{"visual_prompt":"ok"}]}'
+
+        with patch.object(PromptExpandStage, "_generate", side_effect=flaky):
+            mock_mgr = MagicMock()
+            mock_handle = MagicMock()
+            mock_handle.model = (MagicMock(), MagicMock())
+            mock_mgr.acquire.return_value.__enter__.return_value = mock_handle
+            stage = PromptExpandStage()
+            stage.process(ctx, mock_mgr)
+        self.assertEqual(call_count["n"], 3)
+        self.assertEqual(len(ctx.scenes), 1)
+        self.assertEqual(ctx.scenes[0]["visual_prompt"], "ok")
+
+    def test_process_single_fallback_after_all_parse_fail(self):
+        """3 次 LLM 都返回坏 JSON → 走西游记 fallback，不崩溃，写 fallback json。"""
+        from custom_nodes4macos.pipeline.stages.prompt_expand import PromptExpandStage
+        from custom_nodes4macos.pipeline.context import PipelineContext
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="t", job_dir=tmpdir, config={
+            "story_seed": "深夜赶路遇白衣女子",
+            "scene_count": 2,
+            "style_preset": "",
+            "style_presets": {},
+        })
+        with patch.object(PromptExpandStage, "_generate", return_value="totally not json at all"):
+            mock_mgr = MagicMock()
+            mock_handle = MagicMock()
+            mock_handle.model = (MagicMock(), MagicMock())
+            mock_mgr.acquire.return_value.__enter__.return_value = mock_handle
+            stage = PromptExpandStage()
+            stage.process(ctx, mock_mgr)
+        self.assertGreaterEqual(len(ctx.scenes), 1)
+        fb_path = os.path.join(tmpdir, "_prompt_expand_ep1_fallback.json")
+        self.assertTrue(os.path.exists(fb_path), "single-episode fallback json should be written")
+
 
 class TestStoryIngestHelpers(unittest.TestCase):
     """覆盖 story_ingest 的 _strip_thinking、_parse_episodes 容错、_read_pdf/epub 回退。"""
@@ -369,7 +435,7 @@ class TestStoryIngestHelpers(unittest.TestCase):
         ctx = PipelineContext(job_id="t", job_dir=tempfile.mkdtemp(), config={})
         stage = StoryIngestStage()
         with patch.object(StoryIngestStage, "_generate", return_value='{"episodes":[]}'):
-            stage._generate_outline(MagicMock(), MagicMock(), chapters, 30, 25, ctx)
+            stage._generate_outline(MagicMock(), chapters, 30, 25, ctx)
         # _generate 被调用即可，验证不抛异常
 
 
@@ -453,6 +519,110 @@ class TestDigitalHumanRenderFallback(unittest.TestCase):
         ctx.scenes = []
         stage = DigitalHumanRenderStage()
         stage._render_fallback(ctx, "")  # 空 scenes，不抛异常
+
+
+class TestRealisticReferenceHelpers(unittest.TestCase):
+    """覆盖 image_generate 的真实人物参考图条件生成辅助函数。"""
+
+    def test_image_to_b64_roundtrip(self):
+        import base64
+        from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, "ref.png")
+        payload = b"\x89PNG fake bytes 12345"
+        with open(path, "wb") as fh:
+            fh.write(payload)
+        b64 = ImageGenerateStage._image_to_b64(path)
+        self.assertEqual(base64.b64decode(b64), payload)
+
+    def test_resolve_reference_returns_b64_when_exists(self):
+        import base64
+        from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, "face.png")
+        with open(path, "wb") as fh:
+            fh.write(b"face-bytes")
+        char_lookup = {"lao_wang": {"name": "lao_wang", "reference_image": path}}
+        ref = ImageGenerateStage._resolve_realistic_reference(
+            "realistic", ["lao_wang"], char_lookup, "",
+        )
+        self.assertIsNotNone(ref)
+        self.assertEqual(base64.b64decode(ref), b"face-bytes")
+
+    def test_resolve_reference_none_when_not_realistic(self):
+        from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
+        char_lookup = {"lao_wang": {"name": "lao_wang", "reference_image": "/x.png"}}
+        self.assertIsNone(
+            ImageGenerateStage._resolve_realistic_reference(
+                "cartoon", ["lao_wang"], char_lookup, "",
+            )
+        )
+
+    def test_resolve_reference_none_when_path_missing(self):
+        from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
+        char_lookup = {"lao_wang": {"name": "lao_wang", "reference_image": "/nope/missing.png"}}
+        self.assertIsNone(
+            ImageGenerateStage._resolve_realistic_reference(
+                "realistic", ["lao_wang"], char_lookup, "",
+            )
+        )
+
+    def test_resolve_reference_relative_to_char_ref_dir(self):
+        import base64
+        from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, "face.png")
+        with open(path, "wb") as fh:
+            fh.write(b"rel-bytes")
+        char_lookup = {"lao_wang": {"name": "lao_wang", "reference_image": "face.png"}}
+        ref = ImageGenerateStage._resolve_realistic_reference(
+            "realistic", ["lao_wang"], char_lookup, tmpdir,
+        )
+        self.assertIsNotNone(ref)
+        self.assertEqual(base64.b64decode(ref), b"rel-bytes")
+
+    def test_resolve_reference_none_when_no_chars(self):
+        from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
+        self.assertIsNone(
+            ImageGenerateStage._resolve_realistic_reference("realistic", [], {}, "")
+        )
+
+    def test_generate_http_forwards_reference_fields(self):
+        from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
+        from PIL import Image
+        import io
+        img = Image.new("RGB", (4, 4), (1, 2, 3))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        handle = MagicMock()
+        handle.client.generate_image.return_value = [buf.getvalue()]
+        handle.model_name = "flux-test"
+        out = os.path.join(tempfile.mkdtemp(), "out.png")
+        ImageGenerateStage._generate_http(
+            handle, "p", 64, 64, 4, 4.0, 0, out,
+            reference_image="REFB64", reference_strength=0.6, conditioning_mode="redux",
+        )
+        call_kwargs = handle.client.generate_image.call_args.kwargs
+        self.assertEqual(call_kwargs["reference_image"], "REFB64")
+        self.assertEqual(call_kwargs["reference_strength"], 0.6)
+        self.assertEqual(call_kwargs["conditioning_mode"], "redux")
+
+    def test_generate_http_omits_reference_when_none(self):
+        from custom_nodes4macos.pipeline.stages.image_generate import ImageGenerateStage
+        from PIL import Image
+        import io
+        img = Image.new("RGB", (4, 4), (1, 2, 3))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        handle = MagicMock()
+        handle.client.generate_image.return_value = [buf.getvalue()]
+        handle.model_name = "flux-test"
+        out = os.path.join(tempfile.mkdtemp(), "out.png")
+        ImageGenerateStage._generate_http(handle, "p", 64, 64, 4, 4.0, 0, out)
+        call_kwargs = handle.client.generate_image.call_args.kwargs
+        self.assertIsNone(call_kwargs["reference_image"])
+        self.assertIsNone(call_kwargs["reference_strength"])
+        self.assertIsNone(call_kwargs["conditioning_mode"])
 
 
 if __name__ == "__main__":

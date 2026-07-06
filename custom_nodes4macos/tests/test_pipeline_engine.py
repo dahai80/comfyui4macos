@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from custom_nodes4macos.pipeline.context import PipelineContext
 from custom_nodes4macos.pipeline.stage import Stage, StageInfo
 from custom_nodes4macos.pipeline.engine import PipelineEngine, register_stage, _STAGE_REGISTRY
+from custom_nodes4macos.pipeline.model_manager import ModelManager
 from custom_nodes4macos.pipeline.result import PipelineResult
 
 
@@ -79,6 +80,45 @@ class TestPipelineEngineRun(unittest.TestCase):
         engine._loaded = True
         with self.assertRaises(ValueError):
             engine.run("nonexistent_type", story_seed="x")
+
+    @patch("custom_nodes4macos.pipeline.engine._TEMPLATE_DIR")
+    def test_run_passes_model_overrides_from_config(self, mock_tpl_dir):
+        mock_tpl_dir.__str__ = lambda s: self._tpl_dir
+        mock_tpl_dir.exists.return_value = True
+        mock_tpl_dir.glob = MagicMock(return_value=[])
+
+        engine = PipelineEngine(output_root=os.path.join(self._tmpdir, "output"))
+        engine._templates = {
+            "test_content": {
+                "name": "test_tpl",
+                "content_type": "test_content",
+                "stages": ["test_dummy"],
+                "defaults": {"scene_count": 3},
+            }
+        }
+        engine._loaded = True
+
+        captured = {}
+
+        class _SpyMgr(ModelManager):
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+                super().__init__(**kwargs)
+
+        with patch("custom_nodes4macos.pipeline.engine.ModelManager", _SpyMgr):
+            _DummyStage.process_called = False
+            engine.run(
+                "test_content",
+                story_seed="hello",
+                llm_model="MyLLM-8bit",
+                flux_model="MyFlux-dev",
+            )
+
+        self.assertEqual(
+            captured.get("model_overrides"),
+            {"llm": "MyLLM-8bit", "flux": "MyFlux-dev"},
+        )
+        self.assertTrue(_DummyStage.process_called)
 
 
 class TestPipelineEngineResume(unittest.TestCase):

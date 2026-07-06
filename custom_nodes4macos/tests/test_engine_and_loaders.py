@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 import yaml
 
 from custom_nodes4macos.pipeline.engine import PipelineEngine, register_stage, _STAGE_REGISTRY
-from custom_nodes4macos.pipeline.model_manager import ModelManager, ModelMode
 from custom_nodes4macos.pipeline.stages.assemble import AssembleStage
 from custom_nodes4macos.pipeline.context import PipelineContext
 
@@ -115,43 +114,6 @@ class TestEngineTemplateLoading(unittest.TestCase):
         result = engine.run("empty", story_seed="x")
         self.assertIsInstance(result, PipelineResult)
         self.assertIsNone(result.final_video)
-
-
-class TestModelManagerRealLoaders(unittest.TestCase):
-    """覆盖 _load_llm/_load_tts 的 ImportError 路径。"""
-
-    def test_load_llm_import_error_propagates(self):
-        import builtins
-        real_import = builtins.__import__
-        def fake_import(name, *a, **k):
-            if name == "mlx_lm" or name.startswith("mlx_lm."):
-                raise ImportError("no mlx_lm")
-            return real_import(name, *a, **k)
-        with patch("builtins.__import__", side_effect=fake_import):
-            with self.assertRaises(ImportError):
-                ModelManager._load_llm("fake/path")
-
-    def test_load_tts_import_error_propagates(self):
-        import builtins
-        real_import = builtins.__import__
-        def fake_import(name, *a, **k):
-            if name == "mlx_audio" or name.startswith("mlx_audio."):
-                raise ImportError("no mlx_audio")
-            return real_import(name, *a, **k)
-        with patch("builtins.__import__", side_effect=fake_import):
-            with self.assertRaises(ImportError):
-                ModelManager._load_tts("fake/path")
-
-    @patch.object(ModelManager, "MODEL_REGISTRY", {
-        "m": {"path": "fake", "memory_gb": 1.0, "loader": "_load_llm"},
-    })
-    @patch.object(ModelManager, "_load_llm", return_value=("model", "tok"))
-    def test_acquire_handle_model_attribute(self, _):
-        mgr = ModelManager(mode=ModelMode.SEQUENTIAL, memory_budget_gb=10.0)
-        with mgr.acquire("m") as handle:
-            self.assertEqual(handle.name, "m")
-            self.assertEqual(handle.model, ("model", "tok"))
-            handle.release()  # 显式 release 不应抛异常
 
 
 class TestAssembleStageBranches(unittest.TestCase):
@@ -311,7 +273,7 @@ class TestFusionClientMethods(unittest.TestCase):
         }
         mock_client.request.return_value = mock_resp
         client = FusionMLXClient()
-        content, usage = client.chat([{"role": "user", "content": "hi"}])
+        content, usage = client.chat([{"role": "user", "content": "hi"}], model="test-model")
         self.assertEqual(content, "hello")
         self.assertEqual(usage, {"total_tokens": 5})
 
@@ -326,7 +288,7 @@ class TestFusionClientMethods(unittest.TestCase):
         mock_client.request.return_value = mock_resp
         client = FusionMLXClient()
         with self.assertRaises(FusionMLXError):
-            client.chat([{"role": "user", "content": "hi"}])
+            client.chat([{"role": "user", "content": "hi"}], model="test-model")
 
     @patch("httpx.Client")
     def test_generate_image_decodes_b64(self, mock_cls):
@@ -412,6 +374,66 @@ class TestFusionClientMethods(unittest.TestCase):
         client = FusionMLXClient()
         with self.assertRaises(FusionMLXError):
             client.synthesize_speech("t", "m")
+
+    @patch("httpx.Client")
+    def test_transcribe_resolves_default_whisper_model(self, mock_cls):
+        from custom_nodes4macos.fusion_client import FusionMLXClient
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
+        mock_client.headers = {}
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"text": "转写结果"}
+        mock_client.post.return_value = mock_resp
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+            audio_path = tf.name
+        try:
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("FUSION_WHISPER_MODEL", None)
+                client = FusionMLXClient()
+                text, _ = client.transcribe(audio_path)
+            self.assertEqual(text, "转写结果")
+            data = mock_client.post.call_args.kwargs["data"]
+            self.assertEqual(data["model"], "mlx-community/whisper-large-v3-turbo")
+        finally:
+            os.unlink(audio_path)
+
+    @patch("httpx.Client")
+    def test_transcribe_env_overrides_whisper_model(self, mock_cls):
+        from custom_nodes4macos.fusion_client import FusionMLXClient
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
+        mock_client.headers = {}
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"text": "x"}
+        mock_client.post.return_value = mock_resp
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+            audio_path = tf.name
+        try:
+            with patch.dict(os.environ, {"FUSION_WHISPER_MODEL": "custom-whisper-q4"}):
+                client = FusionMLXClient()
+                client.transcribe(audio_path)
+            data = mock_client.post.call_args.kwargs["data"]
+            self.assertEqual(data["model"], "custom-whisper-q4")
+        finally:
+            os.unlink(audio_path)
+
+    @patch("httpx.Client")
+    def test_transcribe_empty_env_no_model_raises(self, mock_cls):
+        from custom_nodes4macos.fusion_client import FusionMLXClient, FusionMLXError
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
+        mock_client.headers = {}
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+            audio_path = tf.name
+        try:
+            with patch.dict(os.environ, {"FUSION_WHISPER_MODEL": ""}):
+                client = FusionMLXClient()
+                with self.assertRaises(FusionMLXError):
+                    client.transcribe(audio_path)
+        finally:
+            os.unlink(audio_path)
 
     @patch("httpx.Client")
     def test_list_models_parses_ids(self, mock_cls):

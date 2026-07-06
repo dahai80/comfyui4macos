@@ -10,6 +10,7 @@ _ARTIFACT_EXTENSIONS = {
     "audio": "wav",
     "clip": "mp4",
     "final": "mp4",
+    "subtitle": "srt",
 }
 
 

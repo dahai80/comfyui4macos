@@ -393,12 +393,21 @@ class TestTTSVoiceGender(unittest.TestCase):
         self.assertIn("清脆女声", result)
         self.assertNotIn("女声，温柔细腻", result)
 
-    def test_male_gender_no_auto_voice(self):
+    def test_male_gender_gets_male_voice(self):
         char_lookup = {"老张": {"name": "老张", "gender": "male", "appearance": "old man"}}
         result = TTSSynthesizeStage._get_scene_instructions(
             "低沉旁白", ["老张"], char_lookup,
         )
-        self.assertEqual(result, "低沉旁白")
+        self.assertIn("男声", result)
+        self.assertIn("老张", result)
+        self.assertNotEqual(result, "低沉旁白")
+
+    def test_male_gender_chinese(self):
+        char_lookup = {"老张": {"name": "老张", "gender": "男", "appearance": "old man"}}
+        result = TTSSynthesizeStage._get_scene_instructions(
+            "低沉旁白", ["老张"], char_lookup,
+        )
+        self.assertIn("男声", result)
 
     def test_no_characters_returns_base(self):
         result = TTSSynthesizeStage._get_scene_instructions("旁白", [], {})
@@ -478,6 +487,83 @@ class TestChineseFaceEnforcement(unittest.TestCase):
         PromptExpandStage._enforce_chinese_faces(ctx)
         app = ctx.config["character_registry"][0]["appearance"]
         self.assertEqual(app.count("Chinese face"), 1)
+
+    def test_chinese_face_enforced_for_empty_appearance(self):
+        ctx = PipelineContext(job_id="test", job_dir="/tmp/test", config={
+            "content_type": "short_drama",
+            "character_registry": [
+                {"name": "老张"},
+            ],
+        })
+        PromptExpandStage._enforce_chinese_faces(ctx)
+        app = ctx.config["character_registry"][0]["appearance"]
+        self.assertIn("Chinese face", app)
+        self.assertIn("East Asian features", app)
+
+    def test_chinese_face_skips_narrator_empty_appearance(self):
+        ctx = PipelineContext(job_id="test", job_dir="/tmp/test", config={
+            "content_type": "short_drama",
+            "character_registry": [
+                {"name": "旁白"},
+            ],
+        })
+        PromptExpandStage._enforce_chinese_faces(ctx)
+        self.assertNotIn("appearance", ctx.config["character_registry"][0])
+
+    def test_global_style_gets_east_asian_default(self):
+        ctx = PipelineContext(job_id="test", job_dir="/tmp/test", config={
+            "content_type": "short_drama",
+            "global_style": "ink-wash dark fantasy",
+            "character_registry": [],
+        })
+        PromptExpandStage._enforce_chinese_faces(ctx)
+        self.assertIn("East Asian", ctx.config["global_style"])
+
+    def test_global_style_not_duplicated_if_already_east_asian(self):
+        ctx = PipelineContext(job_id="test", job_dir="/tmp/test", config={
+            "content_type": "short_drama",
+            "global_style": "East Asian ink-wash horror",
+            "character_registry": [],
+        })
+        PromptExpandStage._enforce_chinese_faces(ctx)
+        self.assertEqual(ctx.config["global_style"], "East Asian ink-wash horror")
+
+
+class TestVisualAudioCorrelation(unittest.TestCase):
+
+    def test_reinforce_appends_missing_keyword(self):
+        scenes = [
+            {"scene_id": 1, "visual_prompt": "dark abandoned building", "audio_script": "他推开破庙的木门。"},
+        ]
+        PromptExpandStage._reinforce_visual_audio_correlation(scenes)
+        vp = scenes[0]["visual_prompt"]
+        self.assertIn("door", vp.lower())
+        self.assertIn("abandoned temple", vp.lower())
+
+    def test_reinforce_skips_when_keyword_present(self):
+        scenes = [
+            {"scene_id": 1, "visual_prompt": "abandoned temple wooden door", "audio_script": "他推开破庙的木门。"},
+        ]
+        before = scenes[0]["visual_prompt"]
+        PromptExpandStage._reinforce_visual_audio_correlation(scenes)
+        self.assertEqual(scenes[0]["visual_prompt"], before)
+
+    def test_reinforce_skips_empty_audio_or_visual(self):
+        scenes = [
+            {"scene_id": 1, "visual_prompt": "", "audio_script": "他推开破庙的木门。"},
+            {"scene_id": 2, "visual_prompt": "dark scene", "audio_script": ""},
+        ]
+        PromptExpandStage._reinforce_visual_audio_correlation(scenes)
+        self.assertEqual(scenes[0]["visual_prompt"], "")
+        self.assertEqual(scenes[1]["visual_prompt"], "dark scene")
+
+    def test_reinforce_no_overlap_leaves_unchanged(self):
+        scenes = [
+            {"scene_id": 1, "visual_prompt": "starry night sky", "audio_script": "今天天气真好。"},
+        ]
+        before = scenes[0]["visual_prompt"]
+        PromptExpandStage._reinforce_visual_audio_correlation(scenes)
+        self.assertEqual(scenes[0]["visual_prompt"], before)
 
 
 if __name__ == "__main__":

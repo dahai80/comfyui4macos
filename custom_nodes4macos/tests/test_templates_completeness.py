@@ -30,9 +30,13 @@ EXPECTED_CONTENT_TYPES = {
 # 已实现的 stage 名（来自 stages/__init__.py 注册）
 IMPLEMENTED_STAGES = {
     "story_ingest", "prompt_expand", "image_generate",
-    "tts_synthesize", "ken_burns", "assemble", "digital_human_render",
-    "avatar_create", "avatar_animate", "voice_clone",
+    "tts_synthesize", "ken_burns", "multi_pose", "assemble", "sfx", "subtitle",
+    "digital_human_render", "avatar_create", "avatar_animate", "voice_clone",
+    "series_orchestrate", "publish",
 }
+
+# 产出 final 视频的收尾 stage（assemble 直出，subtitle 覆盖 final，series_orchestrate 逐集产出 final）
+_FINAL_PRODUCERS = {"assemble", "subtitle", "series_orchestrate"}
 
 
 def _load_all_templates():
@@ -94,9 +98,9 @@ class TestTemplateStagesConsistency(unittest.TestCase):
                                   f"{fname} references unimplemented stage: {stage_name}")
 
     def test_short_drama_uses_horror_pipeline(self):
-        """short_drama 应包含 prompt_expand→image→tts→ken_burns→assemble。"""
+        """short_drama 应含 prompt_expand→image→tts→ken_burns→assemble→sfx→subtitle。"""
         data = self.templates["short_drama.yaml"]
-        expected = ["prompt_expand", "image_generate", "tts_synthesize", "ken_burns", "assemble"]
+        expected = ["prompt_expand", "image_generate", "tts_synthesize", "ken_burns", "assemble", "sfx", "subtitle"]
         self.assertEqual(data["stages"], expected)
 
     def test_series_includes_story_ingest(self):
@@ -110,12 +114,12 @@ class TestTemplateStagesConsistency(unittest.TestCase):
         self.assertIn("avatar_create", data["stages"])
         self.assertIn("avatar_animate", data["stages"])
 
-    def test_all_templates_end_with_assemble(self):
-        """所有内容类型最终以 assemble 收尾产出 final。"""
+    def test_all_templates_end_with_final_producer(self):
+        """所有内容类型最终以产出 final 的 stage 收尾（assemble 或 subtitle）。"""
         for fname, data in self.templates.items():
             with self.subTest(template=fname):
-                self.assertEqual(data["stages"][-1], "assemble",
-                                 f"{fname} does not end with assemble")
+                self.assertIn(data["stages"][-1], _FINAL_PRODUCERS,
+                              f"{fname} does not end with a final-producing stage")
 
 
 class TestTemplateDefaults(unittest.TestCase):

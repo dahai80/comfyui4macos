@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from pathlib import Path
 
 from ..fusion_client import FusionMLXClient, FusionMLXError, list_models_safe
@@ -24,8 +25,21 @@ def _load_system_prompt() -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _strip_thinking(text: str) -> str:
+    end_tag = chr(60) + "/" + "think" + chr(62)
+    if end_tag in text:
+        text = text.split(end_tag, 1)[1]
+    tp_match = re.search(r"thinking process:", text, re.IGNORECASE)
+    if tp_match:
+        after = text[tp_match.end():]
+        brace = after.find("{")
+        if brace >= 0:
+            text = after[brace:]
+    return text.strip()
+
+
 def _parse_json(content: str) -> dict:
-    text = content.strip()
+    text = _strip_thinking(content.strip())
     if text.startswith("```"):
         parts = text.split("```")
         if len(parts) >= 3:
@@ -37,9 +51,21 @@ def _parse_json(content: str) -> dict:
             text = text.strip("`")
     try:
         return json.loads(text)
-    except json.JSONDecodeError as exc:
-        logger.error("json parse failed: %s head=%r", exc, text[:200])
-        raise FusionMLXError(f"模型输出不是合法 JSON: {exc}") from exc
+    except json.JSONDecodeError:
+        brace = text.find("{")
+        if brace >= 0:
+            candidate = text[brace:]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                for end in range(len(candidate) - 1, max(len(candidate) - 4000, 0), -1):
+                    if candidate[end] == "}":
+                        try:
+                            return json.loads(candidate[:end + 1])
+                        except json.JSONDecodeError:
+                            continue
+        logger.error("json parse failed head=%r", text[:200])
+        raise FusionMLXError("模型输出不是合法 JSON")
 
 
 def _build_user_message(story_seed: str, episode_title: str, scene_count: int, style_preset: str, style_text: str) -> str:

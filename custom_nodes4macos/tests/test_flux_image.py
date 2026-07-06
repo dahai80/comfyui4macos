@@ -51,9 +51,23 @@ def test_build_prompt_without_style():
     assert fi._build_prompt("破庙", "  ") == "破庙"
 
 
+def test_resolve_flux_model_picks_flux_from_list():
+    models = ["(auto)", "Qwen3-0.6B-4bit", "Flux-1.lite-8B-MLX-Q4"]
+    assert fi._resolve_flux_model_from(models) == "Flux-1.lite-8B-MLX-Q4"
+
+
+def test_resolve_flux_model_falls_back_when_no_flux():
+    assert fi._resolve_flux_model_from(["(auto)", "Qwen3-0.6B-4bit"]) is None
+
+
+def test_resolve_flux_model_keeps_explicit():
+    assert fi._resolve_flux_model_from(["(auto)", "Flux-x"], "my-flux-manual") == "my-flux-manual"
+
+
 def test_node_generate_offline(monkeypatch):
     fake = FakeClient()
     monkeypatch.setattr(fi, "FusionMLXClient", lambda *a, **k: fake)
+    monkeypatch.setattr(fi, "list_models_safe", lambda: ["(auto)", "Flux-Test-Model"])
     monkeypatch.setattr(
         fi, "_bytes_to_image_tensor",
         lambda b: SimpleNamespace(shape=(1, 8, 8, 3), raw=b),
@@ -73,7 +87,7 @@ def test_node_generate_offline(monkeypatch):
     )
     assert tensor.shape == (1, 8, 8, 3)
     assert tensor.raw == b"\x89PNG\r\n\x1a\nfake-image-bytes"
-    assert fake.captured["model"] is None
+    assert fake.captured["model"] == "Flux-Test-Model"
     assert fake.captured["width"] == 768
     assert fake.captured["seed"] is None
     assert fake.captured["prompt"].startswith("破庙夜景")

@@ -41,7 +41,7 @@ class TestPromptExpandToImageGenerate(unittest.TestCase):
         ]
         ctx = _make_ctx(scenes, self._tmpdir, {"global_style": "ink-wash, 8k"})
 
-        def fake_gen(pipeline, prompt, w, h, steps, g, seed, out_path, scheduler="linear"):
+        def fake_gen(pipeline, prompt, w, h, steps, g, seed, out_path, scheduler="linear", **kwargs):
             with open(out_path, "wb") as f:
                 f.write(b"fake-png")
             return None
@@ -84,6 +84,135 @@ class TestPromptExpandToImageGenerate(unittest.TestCase):
         stage = ImageGenerateStage()
         stage.process(ctx, MagicMock())
         mock_gen.assert_not_called()
+
+    @patch.object(ImageGenerateStage, "_generate_image")
+    def test_image_generate_realistic_passes_character_reference(self, mock_gen):
+        """character_style=realistic 且角色有 reference_image 时透传给 _generate_image。"""
+        ref_path = os.path.join(self._tmpdir, "face.png")
+        with open(ref_path, "wb") as f:
+            f.write(b"face-bytes")
+        scenes = [{"scene_id": 1, "visual_prompt": "v", "characters": ["lao_wang"]}]
+        registry = [{"name": "lao_wang", "appearance": "old man", "reference_image": ref_path}]
+        ctx = _make_ctx(scenes, self._tmpdir, {
+            "character_style": "realistic",
+            "character_registry": registry,
+        })
+
+        def fake_gen(handle, prompt, w, h, steps, g, seed, out_path, **kwargs):
+            with open(out_path, "wb") as f:
+                f.write(b"fake-png")
+            return None
+
+        mock_gen.side_effect = fake_gen
+        ImageGenerateStage().process(ctx, MagicMock())
+        self.assertEqual(mock_gen.call_count, 1)
+        kwargs = mock_gen.call_args.kwargs
+        self.assertIsNotNone(kwargs.get("reference_image"))
+        self.assertEqual(kwargs.get("conditioning_mode"), "redux")
+        import base64
+        self.assertEqual(base64.b64decode(kwargs["reference_image"]), b"face-bytes")
+
+
+class TestRealisticReferenceWireE2E(unittest.TestCase):
+    """wire-level e2e：character_style=realistic 时 process() 实际把 reference_image
+    写入发往 fusion-mlx /v1/images/generate 的 HTTP body。
+
+    不 mock _generate_image（保留全链路 process→_generate_image→_generate_http→
+    client.generate_image→_request→httpx），只 mock 传输层 httpx.Client.request，
+    用真实 1x1 PNG 让 PIL 保存通过。证明 ComfyUI 侧参考图透传在 wire 层完整——
+    PR #31 落地前 fusion-mlx 会忽略此字段（pydantic 前向兼容），不报错；
+    PR #31 落地后同一 wire body 即被 fusion-mlx 消费实现身份保持。
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        import base64
+        import io
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("RGB", (1, 1), (8, 8, 8)).save(buf, format="PNG")
+        self._png_bytes = buf.getvalue()
+        self._png_b64 = base64.b64encode(self._png_bytes).decode("ascii")
+
+    def test_realistic_reference_on_wire(self):
+        import base64
+        from types import SimpleNamespace
+        from custom_nodes4macos.fusion_client import FusionMLXClient
+        ref_path = os.path.join(self._tmpdir, "face.png")
+        with open(ref_path, "wb") as f:
+            f.write(self._png_bytes)
+        scenes = [{"scene_id": 1, "visual_prompt": "v", "characters": ["lao_wang"]}]
+        registry = [{"name": "lao_wang", "appearance": "old man", "reference_image": ref_path}]
+        ctx = _make_ctx(scenes, self._tmpdir, {
+            "character_style": "realistic",
+            "character_registry": registry,
+            "realistic_reference_strength": 0.6,
+            "realistic_conditioning_mode": "redux",
+        })
+        captured: dict = {}
+
+        def fake_request(method, url, json=None, timeout=None, **kw):
+            captured["method"] = method
+            captured["url"] = url
+            captured["json"] = json
+            resp = MagicMock(status_code=200)
+            resp.json.return_value = {"data": [{"b64_json": self._png_b64}]}
+            resp.text = ""
+            return resp
+
+        with patch("custom_nodes4macos.fusion_client.httpx.Client") as mock_cls:
+            mock_transport = MagicMock()
+            mock_cls.return_value = mock_transport
+            mock_transport.request.side_effect = fake_request
+            client = FusionMLXClient()
+
+            handle = SimpleNamespace(client=client, model_name="flux-dev")
+            mm = MagicMock()
+            mm.acquire.return_value.__enter__.return_value = handle
+            mm.acquire.return_value.__exit__.return_value = False
+
+            ImageGenerateStage().process(ctx, mm)
+
+        self.assertEqual(captured.get("method"), "POST")
+        self.assertTrue(str(captured.get("url", "")).endswith("/v1/images/generate"))
+        body = captured["json"]
+        self.assertIn("reference_image", body)
+        self.assertEqual(body["conditioning_mode"], "redux")
+        self.assertAlmostEqual(body["reference_strength"], 0.6)
+        self.assertEqual(base64.b64decode(body["reference_image"]), self._png_bytes)
+        self.assertTrue(os.path.exists(ctx.artifact_path(1, "image")))
+
+    def test_non_realistic_omits_reference_on_wire(self):
+        from types import SimpleNamespace
+        from custom_nodes4macos.fusion_client import FusionMLXClient
+        scenes = [{"scene_id": 1, "visual_prompt": "v", "characters": ["lao_wang"]}]
+        registry = [{"name": "lao_wang", "appearance": "old man"}]
+        ctx = _make_ctx(scenes, self._tmpdir, {
+            "character_style": "cartoon",
+            "character_registry": registry,
+        })
+        captured: dict = {}
+
+        def fake_request(method, url, json=None, timeout=None, **kw):
+            captured["json"] = json
+            resp = MagicMock(status_code=200)
+            resp.json.return_value = {"data": [{"b64_json": self._png_b64}]}
+            resp.text = ""
+            return resp
+
+        with patch("custom_nodes4macos.fusion_client.httpx.Client") as mock_cls:
+            mock_transport = MagicMock()
+            mock_cls.return_value = mock_transport
+            mock_transport.request.side_effect = fake_request
+            client = FusionMLXClient()
+            handle = SimpleNamespace(client=client, model_name="flux-dev")
+            mm = MagicMock()
+            mm.acquire.return_value.__enter__.return_value = handle
+            mm.acquire.return_value.__exit__.return_value = False
+            ImageGenerateStage().process(ctx, mm)
+
+        self.assertNotIn("reference_image", captured["json"])
+        self.assertNotIn("conditioning_mode", captured["json"])
 
 
 class TestImageGenerateToKenBurns(unittest.TestCase):

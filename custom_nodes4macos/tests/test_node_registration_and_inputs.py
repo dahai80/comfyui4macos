@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestNodeRegistration(unittest.TestCase):
     """覆盖 custom_nodes4macos/__init__.py 的 6 个节点注册块。"""
@@ -57,6 +59,7 @@ class TestFluxImageNodeFull(unittest.TestCase):
         self.assertIn("api_key", inputs["optional"])
 
     def test_bytes_to_image_tensor_shape(self):
+        pytest.importorskip("torch", reason="torch not installed in MLX-native venv")
         from custom_nodes4macos.nodes import flux_image as fi
         # 构造一个最小 PNG
         from PIL import Image
@@ -69,6 +72,7 @@ class TestFluxImageNodeFull(unittest.TestCase):
         self.assertEqual(tensor.shape[-1], 3)  # channels
 
     def test_bytes_to_image_tensor_values_normalized(self):
+        pytest.importorskip("torch", reason="torch not installed in MLX-native venv")
         from custom_nodes4macos.nodes import flux_image as fi
         from PIL import Image
         import io

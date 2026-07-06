@@ -24,6 +24,8 @@ class CheckpointData:
     config_overrides: dict = field(default_factory=dict)
     character_registry: list[dict] = field(default_factory=list)
     global_style: str = ""
+    completed_episodes: list[int] = field(default_factory=list)
+    episode_finals: list[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
 
@@ -45,6 +47,8 @@ class CheckpointManager:
             config_overrides=ctx.config.get("overrides", dict(ctx.config)),
             character_registry=list(ctx.config.get("character_registry", [])),
             global_style=ctx.config.get("global_style", ""),
+            completed_episodes=list(ctx.config.get("_completed_episodes", [])),
+            episode_finals=list(ctx.config.get("_episode_finals", [])),
             created_at=ctx.created_at or datetime.now().isoformat(),
             updated_at=datetime.now().isoformat(),
         )
@@ -89,6 +93,10 @@ class CheckpointManager:
             ctx.config["character_registry"] = cp.character_registry
         if cp.global_style:
             ctx.config["global_style"] = cp.global_style
+        if cp.completed_episodes:
+            ctx.config["_completed_episodes"] = cp.completed_episodes
+        if cp.episode_finals:
+            ctx.config["_episode_finals"] = cp.episode_finals
         logger.info(
             "checkpoint restored: job=%s stages=%s scenes=%d artifacts=%d",
             ctx.job_id, cp.completed_stages, len(cp.scenes), len(cp.artifacts),

@@ -365,6 +365,30 @@ class TestAvatarCreateProcess(unittest.TestCase):
         self.assertEqual(img.shape, (512, 512, 3))
         self.assertEqual(img.dtype, np.uint8)
 
+    def test_reuse_prebuilt_avatar_package_skips_detection(self):
+        import cv2
+        import numpy as np
+
+        pre_pkg = tempfile.mkdtemp()
+        ref_img = np.zeros((512, 512, 3), dtype=np.uint8)
+        cv2.imwrite(os.path.join(pre_pkg, "reference.png"), ref_img)
+        with open(os.path.join(pre_pkg, "avatar_meta.json"), "w") as f:
+            json.dump({"avatar_style": "realistic", "landmarks": {}}, f)
+
+        tmpdir = tempfile.mkdtemp()
+        ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+            "avatar_package": pre_pkg,
+        })
+        ctx.scenes = []
+
+        stage = AvatarCreateStage()
+        stage.process(ctx, MagicMock())
+
+        self.assertEqual(ctx.artifacts.get("avatar_package"), pre_pkg)
+        self.assertEqual(ctx.artifacts.get("avatar_reference"), os.path.join(pre_pkg, "reference.png"))
+        self.assertEqual(ctx.config.get("avatar_reference"), os.path.join(pre_pkg, "reference.png"))
+        self.assertFalse(os.path.isdir(os.path.join(tmpdir, "_avatar")))
+
 
 class TestAvatarAnimateStageInfo(unittest.TestCase):
 
@@ -468,6 +492,24 @@ class TestVoiceCloneStageInfo(unittest.TestCase):
 
 
 class TestVoiceCloneAutoTranscribe(unittest.TestCase):
+
+    @patch("custom_nodes4macos.fusion_client.FusionMLXClient")
+    def test_auto_transcribe_returns_stripped_text(self, mock_cls):
+        mock_client = MagicMock()
+        mock_client.health.return_value = True
+        mock_client.transcribe.return_value = ("  转写文本  ", {})
+        mock_cls.return_value.__enter__.return_value = mock_client
+        text = VoiceCloneStage._auto_transcribe("/tmp/ref.wav")
+        self.assertEqual(text, "转写文本")
+        mock_client.transcribe.assert_called_once_with("/tmp/ref.wav")
+
+    @patch("custom_nodes4macos.fusion_client.FusionMLXClient")
+    def test_auto_transcribe_unreachable_returns_empty(self, mock_cls):
+        mock_client = MagicMock()
+        mock_client.health.return_value = False
+        mock_cls.return_value.__enter__.return_value = mock_client
+        self.assertEqual(VoiceCloneStage._auto_transcribe("/tmp/ref.wav"), "")
+        mock_client.transcribe.assert_not_called()
 
     @patch("custom_nodes4macos.pipeline.stages.voice_clone.VoiceCloneStage._auto_transcribe")
     def test_auto_transcribe_called_when_no_ref_text(self, mock_transcribe):

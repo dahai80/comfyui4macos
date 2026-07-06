@@ -69,4 +69,11 @@ try:
 except Exception as exc:
     logger.exception("failed to register dream_factory node: %s", exc)
 
+try:
+    from . import server_routes
+
+    logger.info("server_routes loaded: registered=%s", server_routes._REGISTERED)
+except Exception as exc:
+    logger.warning("server_routes load skipped: %s", exc)
+
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

@@ -3,83 +3,78 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from custom_nodes4macos.pipeline.model_manager import ModelManager, ModelHandle, ModelMode
+from custom_nodes4macos.pipeline.model_manager import (
+    ModelManager,
+    ModelMode,
+    RemoteHandle,
+)
 
 
-class TestModelManagerAcquireRelease(unittest.TestCase):
+class TestRemoteHandle(unittest.TestCase):
 
-    @patch.object(ModelManager, "MODEL_REGISTRY", {
-        "test_model": {"path": "fake", "memory_gb": 1.0, "loader": "_load_llm"},
-    })
-    @patch.object(ModelManager, "_load_llm", return_value=("model_obj", "tokenizer_obj"))
-    def test_sequential_acquire_and_release(self, mock_load):
+    def test_properties_expose_name_client_model(self):
+        client = MagicMock()
+        handle = RemoteHandle("llm", client, "Qwen3.5-9B-4bit")
+        self.assertEqual(handle.name, "llm")
+        self.assertIs(handle.client, client)
+        self.assertEqual(handle.model_name, "Qwen3.5-9B-4bit")
+
+    def test_release_is_noop(self):
+        client = MagicMock()
+        handle = RemoteHandle("tts", client, "Qwen3-TTS")
+        handle.release()
+        client.close.assert_not_called()
+
+
+class TestModelManagerAcquire(unittest.TestCase):
+
+    def test_acquire_known_returns_remote_handle(self):
         mgr = ModelManager(mode=ModelMode.SEQUENTIAL)
-        with mgr.acquire("test_model") as handle:
-            self.assertIsInstance(handle, ModelHandle)
-            self.assertEqual(handle.model, ("model_obj", "tokenizer_obj"))
-        self.assertEqual(mgr.current_usage_gb, 0.0)
-        self.assertNotIn("test_model", mgr._loaded)
+        with patch.object(mgr._client, "health", return_value=True):
+            with mgr.acquire("llm") as handle:
+                self.assertIsInstance(handle, RemoteHandle)
+                self.assertEqual(handle.name, "llm")
+                self.assertIs(handle.client, mgr._client)
 
-    @patch.object(ModelManager, "MODEL_REGISTRY", {
-        "test_model": {"path": "fake", "memory_gb": 2.0, "loader": "_load_llm"},
-    })
-    @patch.object(ModelManager, "_load_llm", return_value="model_obj")
-    def test_resident_mode_caches(self, mock_load):
-        mgr = ModelManager(mode=ModelMode.RESIDENT)
-        with mgr.acquire("test_model") as handle:
-            self.assertEqual(handle.model, "model_obj")
-        self.assertIn("test_model", mgr._loaded)
-        self.assertEqual(mgr.current_usage_gb, 2.0)
-
-    @patch.object(ModelManager, "MODEL_REGISTRY", {
-        "test_model": {"path": "fake", "memory_gb": 3.0, "loader": "_load_llm"},
-    })
-    @patch.object(ModelManager, "_load_llm", return_value="m1")
-    def test_resident_reuses_cache(self, mock_load):
-        mgr = ModelManager(mode=ModelMode.RESIDENT)
-        with mgr.acquire("test_model") as h1:
-            pass
-        mock_load.return_value = "m2"
-        with mgr.acquire("test_model") as h2:
-            self.assertEqual(h2.model, "m1")
-        self.assertEqual(mock_load.call_count, 1)
-
-    def test_unknown_model_raises(self):
+    def test_acquire_unknown_raises(self):
         mgr = ModelManager(mode=ModelMode.SEQUENTIAL)
         with self.assertRaises(ValueError):
-            mgr._acquire_handle("nonexistent")
+            with mgr.acquire("nonexistent") as handle:
+                pass
 
-    @patch.object(ModelManager, "MODEL_REGISTRY", {
-        "test_model": {"path": "fake", "memory_gb": 5.0, "loader": "_load_llm"},
-    })
-    @patch.object(ModelManager, "_load_llm", return_value="obj")
-    def test_release_clears_memory(self, mock_load):
-        mgr = ModelManager(mode=ModelMode.RESIDENT)
-        mgr._acquire_handle("test_model")
-        self.assertEqual(mgr.current_usage_gb, 5.0)
-        mgr.release("test_model")
-        self.assertEqual(mgr.current_usage_gb, 0.0)
-        self.assertNotIn("test_model", mgr._loaded)
-
-    @patch.object(ModelManager, "MODEL_REGISTRY", {
-        "m1": {"path": "fake1", "memory_gb": 3.0, "loader": "_load_llm"},
-        "m2": {"path": "fake2", "memory_gb": 2.0, "loader": "_load_flux"},
-    })
-    @patch.object(ModelManager, "_load_llm", return_value="obj1")
-    @patch.object(ModelManager, "_load_flux", return_value="obj2")
-    def test_shutdown_releases_all(self, mock_flux, mock_llm):
-        mgr = ModelManager(mode=ModelMode.RESIDENT)
-        mgr._acquire_handle("m1")
-        mgr._acquire_handle("m2")
-        self.assertEqual(mgr.current_usage_gb, 5.0)
-        mgr.shutdown()
-        self.assertEqual(mgr.current_usage_gb, 0.0)
-        self.assertEqual(len(mgr._loaded), 0)
-
-    @patch.object(ModelManager, "MODEL_REGISTRY", {})
-    def test_shutdown_empty_is_safe(self):
+    def test_acquire_unreachable_still_returns_handle(self):
         mgr = ModelManager(mode=ModelMode.SEQUENTIAL)
-        mgr.shutdown()
+        with patch.object(mgr._client, "health", return_value=False):
+            with mgr.acquire("llm") as handle:
+                self.assertIsInstance(handle, RemoteHandle)
+                self.assertEqual(handle.name, "llm")
+
+    def test_model_overrides_override_registry(self):
+        mgr = ModelManager(
+            mode=ModelMode.SEQUENTIAL,
+            model_overrides={"llm": "Custom-LLM"},
+        )
+        with patch.object(mgr._client, "health", return_value=True):
+            with mgr.acquire("llm") as handle:
+                self.assertEqual(handle.model_name, "Custom-LLM")
+
+    def test_current_usage_always_zero(self):
+        mgr = ModelManager(mode=ModelMode.SEQUENTIAL)
+        self.assertEqual(mgr.current_usage_gb, 0.0)
+        with patch.object(mgr._client, "health", return_value=True):
+            with mgr.acquire("llm"):
+                pass
+        self.assertEqual(mgr.current_usage_gb, 0.0)
+
+    def test_shutdown_closes_client(self):
+        mgr = ModelManager(mode=ModelMode.SEQUENTIAL)
+        with patch.object(mgr._client, "close") as mock_close:
+            mgr.shutdown()
+            mock_close.assert_called_once()
+
+    def test_release_is_noop(self):
+        mgr = ModelManager(mode=ModelMode.SEQUENTIAL)
+        mgr.release("llm")
         self.assertEqual(mgr.current_usage_gb, 0.0)
 
 

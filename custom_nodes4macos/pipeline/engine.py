@@ -21,6 +21,16 @@ logger = logging.getLogger("custom_nodes4macos.pipeline.engine")
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 _OUTPUT_ROOT = Path(os.path.expanduser("~/output/dream_factory"))
 
+_FINAL_STAGE: dict[str, str] = {
+    "series": "series_orchestrate",
+    "short_drama": "subtitle",
+    "ad_drama": "assemble",
+    "puppet_show": "assemble",
+    "medium_video": "assemble",
+    "digital_human": "assemble",
+    "digital_human_live": "assemble",
+}
+
 _STAGE_REGISTRY: dict[str, type[Stage]] = {}
 
 
@@ -170,19 +180,55 @@ class PipelineEngine:
         checkpoint: CheckpointManager,
     ) -> PipelineResult:
         stage_names = ctx.config.get("stages", [])
+        if ctx.config.get("motion_mode") == "multi_pose" and "ken_burns" in stage_names:
+            stage_names = ["multi_pose" if s == "ken_burns" else s for s in stage_names]
+            logger.info("motion_mode=multi_pose: swapped ken_burns → multi_pose")
         if not stage_names:
             logger.warning("no stages configured for content_type=%s", ctx.config.get("content_type"))
             return PipelineResult(job_id=ctx.job_id, job_dir=ctx.job_dir)
 
         stages = self._instantiate_stages(stage_names)
         memory_budget = ctx.config.get("memory_budget_gb", None)
+        model_overrides = {}
+        for _role in ("llm", "flux", "tts"):
+            _val = ctx.config.get(f"{_role}_model")
+            if _val:
+                model_overrides[_role] = _val
+        if model_overrides:
+            logger.info("model overrides from config: %s", model_overrides)
         model_mgr = ModelManager(
             mode=ModelMode.SEQUENTIAL,
+            model_overrides=model_overrides,
             memory_budget_gb=memory_budget,
         )
 
         self._warmup_mlx()
 
+        # P4: Chunked rendering — process scenes in batches to save memory
+        chunks = ctx.config.get("render_chunks", 0)
+        if chunks > 0 and ctx.scenes:
+            chunk_size = max(1, len(ctx.scenes) // chunks)
+            logger.info("P4: chunked rendering %d scenes in %d chunks (%d/scene)", 
+                       len(ctx.scenes), chunks, chunk_size)
+            for chunk_start in range(0, len(ctx.scenes), chunk_size):
+                chunk_end = min(chunk_start + chunk_size, len(ctx.scenes))
+                ctx.config["_chunk_range"] = (chunk_start, chunk_end)
+                logger.info("P4: processing chunk %d-%d", chunk_start, chunk_end)
+                self._run_stages(stages, ctx, model_mgr, checkpoint)
+                # Clear memory between chunks (fusion-mlx manages GPU server-side)
+                import gc; gc.collect()
+        else:
+            self._run_stages(stages, ctx, model_mgr, checkpoint)
+
+        return self.finalize_and_return(ctx)
+
+    def _run_stages(
+        self,
+        stages: list[Stage],
+        ctx: PipelineContext,
+        model_mgr: ModelManager,
+        checkpoint: CheckpointManager,
+    ) -> None:
         for stage in stages:
             info = stage.info()
             if info.name in ctx.completed_stages:
@@ -214,6 +260,7 @@ class PipelineEngine:
 
         model_mgr.shutdown()
 
+    def finalize_and_return(self, ctx: PipelineContext) -> PipelineResult:
         final_video = ctx.get_artifact(0, "final")
         return PipelineResult(
             job_id=ctx.job_id,
@@ -228,11 +275,13 @@ class PipelineEngine:
     @staticmethod
     def _warmup_mlx() -> None:
         try:
-            import mlx.core as mx
-            _ = mx.zeros(1)
-            logger.info("MLX warmup done")
-        except ImportError:
-            pass
+            from ..fusion_client import FusionMLXClient
+            if FusionMLXClient().health():
+                logger.info("fusion-mlx reachable (warmup ok)")
+            else:
+                logger.warning("fusion-mlx unreachable at warmup; pipeline will fail on first acquire")
+        except Exception as exc:
+            logger.warning("fusion-mlx warmup check failed: %s", exc)
 
     def list_jobs(self) -> list[dict]:
         jobs = []
@@ -248,12 +297,94 @@ class PipelineEngine:
                 checkpoint = CheckpointManager(str(d))
                 cp = checkpoint.load()
                 if cp:
-                    jobs.append({
-                        "job_id": cp.job_id,
-                        "content_type": cp.content_type,
-                        "completed_stages": cp.completed_stages,
-                        "updated_at": cp.updated_at,
-                    })
+                    jobs.append(self._job_summary(cp, str(d)))
             except Exception as exc:
                 logger.warning("list_jobs skip %s: %s", d.name, exc)
         return jobs
+
+    def get_job(self, job_id: str) -> dict | None:
+        job_dir = self._output_root / job_id
+        if not job_dir.is_dir():
+            return None
+        cp_path = job_dir / "_checkpoint.json"
+        if not cp_path.exists():
+            return None
+        checkpoint = CheckpointManager(str(job_dir))
+        cp = checkpoint.load()
+        if not cp:
+            return None
+        summary = self._job_summary(cp, str(job_dir))
+        summary["episode_finals"] = self._episode_finals_detail(cp, str(job_dir))
+        summary["artifacts"] = cp.artifacts
+        summary["character_registry_count"] = len(cp.character_registry)
+        summary["global_style"] = cp.global_style
+        return summary
+
+    def resolve_job_file(self, job_id: str, filename: str) -> Path | None:
+        job_dir = (self._output_root / job_id).resolve()
+        if not job_dir.is_dir():
+            return None
+        target = (job_dir / filename).resolve()
+        try:
+            target.relative_to(job_dir)
+        except ValueError:
+            logger.warning("resolve_job_file rejected traversal: job=%s file=%s", job_id, filename)
+            return None
+        if not target.is_file():
+            return None
+        return target
+
+    @staticmethod
+    def _derive_status(
+        content_type: str,
+        completed_stages: list[str],
+        completed_episodes: list[int],
+        total_episodes: int,
+    ) -> str:
+        final = _FINAL_STAGE.get(content_type)
+        if final and final in completed_stages:
+            return "done"
+        if content_type == "series" and total_episodes and len(completed_episodes) >= total_episodes:
+            return "done"
+        if completed_stages:
+            return "in_progress"
+        return "pending"
+
+    def _job_summary(self, cp, job_dir: str) -> dict:
+        content_type = cp.content_type
+        total_episodes = len(cp.scenes) if content_type == "series" else 0
+        completed_eps = list(cp.completed_episodes or [])
+        status = self._derive_status(content_type, cp.completed_stages, completed_eps, total_episodes)
+        if content_type == "series" and total_episodes:
+            progress_label = f"{len(completed_eps)}/{total_episodes} 集"
+        else:
+            progress_label = f"{len(cp.completed_stages)} stages"
+        return {
+            "job_id": cp.job_id,
+            "content_type": content_type,
+            "story_title": (cp.config_overrides or {}).get("story_title", ""),
+            "status": status,
+            "completed_stages": list(cp.completed_stages),
+            "completed_episodes": completed_eps,
+            "total_episodes": total_episodes,
+            "episode_final_count": len(cp.episode_finals or []),
+            "progress_label": progress_label,
+            "created_at": cp.created_at,
+            "updated_at": cp.updated_at,
+        }
+
+    @staticmethod
+    def _episode_finals_detail(cp, job_dir: str) -> list[dict]:
+        finals = []
+        for idx, path in enumerate(cp.episode_finals or [], start=1):
+            import os as _os
+            exists = _os.path.isfile(path)
+            size = _os.path.getsize(path) if exists else 0
+            finals.append({
+                "episode": idx,
+                "path": path,
+                "basename": _os.path.basename(path),
+                "size_bytes": size,
+                "exists": exists,
+            })
+        return finals

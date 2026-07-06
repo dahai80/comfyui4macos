@@ -1,7 +1,7 @@
 name: horror_short_drama
 content_type: short_drama
 description: "1-10min 短剧，静态图 + Ken Burns + TTS"
-stages: [prompt_expand, image_generate, tts_synthesize, ken_burns, assemble]
+stages: [prompt_expand, image_generate, tts_synthesize, ken_burns, assemble, sfx, subtitle]
 
 defaults:
   scene_count: 16
@@ -17,7 +17,18 @@ defaults:
   ken_burns_height: 1920
   ken_burns_fps: 30
   ken_burns_workers: 2
+  ken_burns_audio_cut: true
+  ken_burns_silence_noise_db: -30
+  ken_burns_silence_min_dur: 0.3
+  ken_burns_max_shots: 4
+  ken_burns_audio_cut_min_dur: 3.0
   assemble_transition: "fade"
+  assemble_duck_bgm: true
+  sfx_map: {}
+  subtitle_mode: "auto"
+  subtitle_font: "Arial Unicode"
+  subtitle_font_size: 20
+  subtitle_margin_v: 60
   tts_instructions: "低沉、压抑、略带颤抖的中式恐怖旁白语气；语速偏慢，停顿处留白以制造悬念"
   tts_speed: 0.9
 

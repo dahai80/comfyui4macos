@@ -107,8 +107,18 @@ class TestTemplateYAMLValidation(unittest.TestCase):
         td = self._template_dir()
         with open(os.path.join(td, "series.yaml"), "r") as f:
             data = yaml.safe_load(f)
-        spe = data["defaults"]["scenes_per_episode"]
-        self.assertGreaterEqual(spe, 60, f"series scenes_per_episode={spe} too low for 25min target")
+        defaults = data["defaults"]
+        self.assertNotIn(
+            "scenes_per_episode", defaults,
+            "series.yaml 应使用 scene_count（每集场景数），scenes_per_episode 为死配置已移除",
+        )
+        sc = defaults["scene_count"]
+        self.assertGreaterEqual(sc, 8, f"series scene_count={sc} 低于每集 8 场景下限")
+        self.assertLessEqual(sc, 12, f"series scene_count={sc} 高于每集 12 场景上限")
+        ep = defaults["episode_count"]
+        self.assertGreaterEqual(ep, 1, f"series episode_count={ep} 应为多集")
+        total = sc * ep
+        self.assertGreaterEqual(total, 8, f"series 总场景数 {total} 过少")
 
 
 class TestCheckpointValidation(unittest.TestCase):

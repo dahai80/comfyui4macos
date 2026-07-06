@@ -107,10 +107,17 @@ class FusionMLXClient:
         temperature: float = 0.75,
         json_mode: bool = False,
         max_tokens: int | None = None,
+        chat_template_kwargs: dict | None = None,
         timeout: float | None = None,
     ) -> tuple[str, dict]:
+        resolved_model = model or default_model_safe()
+        if not resolved_model:
+            raise FusionMLXError(
+                "no model specified and fusion-mlx reports no default_model; "
+                "set FUSION_LLM_MODEL or pass model explicitly"
+            )
         payload: dict[str, Any] = {
-            "model": model or default_model_safe() or "gpt-4o",
+            "model": resolved_model,
             "messages": messages,
             "temperature": temperature,
         }
@@ -118,7 +125,12 @@ class FusionMLXClient:
             payload["response_format"] = {"type": "json_object"}
         if max_tokens:
             payload["max_tokens"] = max_tokens
-        logger.info("chat model=%s msgs=%d json_mode=%s", payload["model"], len(messages), json_mode)
+        if chat_template_kwargs:
+            payload["chat_template_kwargs"] = chat_template_kwargs
+        logger.info(
+            "chat model=%s msgs=%d json_mode=%s max_tokens=%s ctk=%s",
+            payload["model"], len(messages), json_mode, max_tokens, bool(chat_template_kwargs),
+        )
         resp = self._request("POST", "/v1/chat/completions", json_body=payload, timeout=timeout)
         if resp.status_code != 200:
             raise FusionMLXError(f"chat status {resp.status_code}: {resp.text[:500]}")
@@ -140,6 +152,9 @@ class FusionMLXClient:
         n: int = 1,
         response_format: str = "b64_json",
         timeout: float | None = None,
+        reference_image: str | None = None,
+        reference_strength: float | None = None,
+        conditioning_mode: str | None = None,
     ) -> list[bytes]:
         payload: dict[str, Any] = {
             "prompt": prompt,
@@ -153,9 +168,16 @@ class FusionMLXClient:
         }
         if seed is not None and seed != 0:
             payload["seed"] = seed
+        if reference_image:
+            payload["reference_image"] = reference_image
+            if reference_strength is not None:
+                payload["reference_strength"] = reference_strength
+            if conditioning_mode:
+                payload["conditioning_mode"] = conditioning_mode
         logger.info(
-            "generate_image model=%s size=%dx%d steps=%d guidance=%.1f seed=%s",
+            "generate_image model=%s size=%dx%d steps=%d guidance=%.1f seed=%s ref=%s",
             model or "auto", width, height, steps, guidance, seed,
+            conditioning_mode or "none",
         )
         resp = self._request("POST", "/v1/images/generate", json_body=payload, timeout=timeout)
         if resp.status_code != 200:
@@ -215,6 +237,45 @@ class FusionMLXClient:
         logger.info("synthesize_speech done bytes=%d", len(audio_bytes))
         return audio_bytes
 
+    def transcribe(
+        self,
+        audio_path: str,
+        model: str | None = None,
+        language: str | None = None,
+        timeout: float | None = None,
+    ) -> tuple[str, dict]:
+        if not os.path.isfile(audio_path):
+            raise FusionMLXError(f"audio file not found: {audio_path}")
+        resolved = model or default_whisper_model_safe()
+        if not resolved:
+            raise FusionMLXError(
+                "no whisper model specified and FUSION_WHISPER_MODEL unset; "
+                "set FUSION_WHISPER_MODEL or pass model explicitly"
+            )
+        headers = {k: v for k, v in self._client.headers.items() if k.lower() != "content-type"}
+        with open(audio_path, "rb") as f:
+            files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
+            data: dict[str, Any] = {"model": resolved}
+            if language:
+                data["language"] = language
+            logger.info(
+                "transcribe model=%s file=%s language=%s",
+                resolved, os.path.basename(audio_path), language or "auto",
+            )
+            resp = self._client.post(
+                "/v1/audio/transcriptions",
+                files=files,
+                data=data,
+                headers=headers,
+                timeout=timeout or self.timeout,
+            )
+        if resp.status_code != 200:
+            raise FusionMLXError(f"transcribe status {resp.status_code}: {resp.text[:500]}")
+        result = resp.json()
+        text = result.get("text", "") or ""
+        logger.info("transcribe done text_len=%d", len(text))
+        return text, result
+
 
 _MODELS_TTL = 60.0
 _models_cache: dict = {"ts": 0.0, "value": None}
@@ -258,3 +319,10 @@ def default_model_safe(force: bool = False) -> str:
     _default_model_cache["value"] = found
     _default_model_cache["ts"] = now
     return found
+
+
+DEFAULT_WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
+
+
+def default_whisper_model_safe() -> str:
+    return os.environ.get("FUSION_WHISPER_MODEL", DEFAULT_WHISPER_MODEL).strip()

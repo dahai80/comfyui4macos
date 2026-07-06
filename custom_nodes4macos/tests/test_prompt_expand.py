@@ -59,6 +59,21 @@ def test_parse_json_invalid_raises():
         pe._parse_json("not json at all")
 
 
+def test_parse_json_strips_thinking_process():
+    raw = "Thinking Process:\n\n1. Analyze.\n2. Output.\n\n" + '{"scenes": [{"scene_id": 1}]}'
+    assert pe._parse_json(raw) == {"scenes": [{"scene_id": 1}]}
+
+
+def test_parse_json_strips_think_tag():
+    raw = "<think>some reasoning here</think>\n" + '{"a": 1}'
+    assert pe._parse_json(raw) == {"a": 1}
+
+
+def test_parse_json_brace_fallback():
+    raw = 'prefix text {"a": 2} trailing'
+    assert pe._parse_json(raw) == {"a": 2}
+
+
 def test_node_expand_offline(monkeypatch):
     monkeypatch.setattr(pe, "FusionMLXClient", FakeClient)
     node = pe.FusionMLXPromptExpand()

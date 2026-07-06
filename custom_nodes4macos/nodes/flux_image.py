@@ -15,6 +15,21 @@ def _build_prompt(visual_prompt: str, global_style: str) -> str:
     return visual_prompt
 
 
+def _resolve_flux_model_from(models: list[str], model: str = "(auto)") -> str | None:
+    if model and model != "(auto)":
+        return model
+    for m in models:
+        if m == "(auto)":
+            continue
+        if "flux" in m.lower():
+            return m
+    return None
+
+
+def _resolve_flux_model(model: str) -> str | None:
+    return _resolve_flux_model_from(list_models_safe(), model)
+
+
 def _bytes_to_image_tensor(img_bytes: bytes):
     import torch
     from PIL import Image
@@ -66,7 +81,7 @@ class FusionMLXFluxImage:
         api_key: str = "",
     ):
         prompt = _build_prompt(visual_prompt, global_style)
-        model_name = None if model == "(auto)" else model
+        model_name = _resolve_flux_model(model)
         seed_arg = None if not seed else int(seed)
         logger.info(
             "generate prompt_len=%d model=%s size=%dx%d steps=%d guidance=%.1f seed=%s",

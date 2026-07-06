@@ -54,6 +54,10 @@ ln -s ~/solution/comfyui4macos/custom_nodes4macos \
 | `FUSION_MLX_API_KEY` | （空） | fusion-mlx 开了 auth 必填（见 settings.json `auth.api_key`） |
 | `FUSION_MLX_TIMEOUT` | `120` | 请求超时秒 |
 | `FUSION_MLX_RETRIES` | `2` | 5xx / 网络错误重试次数 |
+| `FUSION_LLM_MODEL` | `Qwen3.5-9B-4bit` | pipeline LLM stages 用的模型名 |
+| `FUSION_FLUX_MODEL` | （空=服务端默认） | pipeline 图像 stage 用的 flux 模型名 |
+| `FUSION_TTS_MODEL` | `Qwen3-TTS-12Hz-1.7B-Base-8bit` | pipeline TTS stage 用的模型名 |
+| `FUSION_WHISPER_MODEL` | `mlx-community/whisper-large-v3-turbo` | voice_clone 自动转写用的 whisper 模型名 |
 | `CUSTOM_NODES4MACOS_LOG_LEVEL` | `INFO` | 本包日志级别 |
 | `FFMPEG_BIN` / `FFPROBE_BIN` | PATH 自动探测 | KenBurns / Assemble 用的 ffmpeg/ffprobe 路径 |
 | `FFMPEG_TIMEOUT` | `300` | ffmpeg 单次调用超时秒 |
@@ -68,18 +72,28 @@ ln -s ~/solution/comfyui4macos/custom_nodes4macos \
   - **Flux Image**：`(auto)` → 服务端 images 路由默认 `flux-2`。**需要 fusion-mlx 实例挂载 images 路由并加载 flux 模型**（见下「运行实例说明」）。
 - 下拉列表来自 `/v1/models`，缓存 60s；服务未起或 401 时退化为只有 `(auto)`。
 
-## 运行实例说明（重要）
+### Pipeline 模型透传（对比各模型效果）
 
-本机 11434 上跑的是 **oMLX.app**（`/Applications/oMLX.app` 的 `omlx-server`，launchd 自启），**不是** `~/claude-home/fusion-mlx` 源码构建。差异：
+PipelineEngine 跑 stages 时，模型选择优先级：**前端 `config_overrides` > 环境变量 > 默认**。
 
-| 能力 | oMLX.app（当前） | dev fusion-mlx 源码 |
+- 前端 UI（`dream_factory.html` 面板 / `dream-factory-view.tsx` React）提供 4 个模型输入框：`llm_model` / `flux_model` / `tts_model` / `voice_clone_model`，留空则用环境变量默认值。
+- 透传链路：前端 → `config_overrides` JSON → `FusionMLXDreamFactory` 节点 → `PipelineEngine.run(**overrides)` → `ctx.config` → `ModelManager(model_overrides=...)` → `_acquire_handle` override 优先于 `MODEL_REGISTRY`。
+- openclaw subprocess 路径（`/api/dream-gallery/run`）同样透传 `llm_model` / `flux_model` / `tts_model` 到 Python kwargs。
+- 用于"验证文生视频在各个模型下的效果"——填不同模型名跑同一故事种子对比。
+
+## 运行实例说明
+
+fusion-mlx（端口 11434）需挂载以下路由，节点才能对应可用：
+
+| 能力 | 路由 | 说明 |
 |---|---|---|
-| `/v1/chat/completions`（LLM） | ✅ | ✅ |
-| `/v1/audio/speech`（TTS） | ✅（`Qwen3-TTS-12Hz-1.7B-Base-8bit`） | ✅ |
-| `/v1/images/generate`（Flux 图像） | ❌ 路由未挂载（OpenAPI 无此路径） | ✅（`server.py` 无条件挂载 images_router） |
+| LLM | `/v1/chat/completions` | 必备；Prompt Expand / Story Ingest / pipeline LLM stages |
+| TTS | `/v1/audio/speech` | `Qwen3-TTS-12Hz-1.7B-Base-8bit` |
+| 转录 | `/v1/audio/transcriptions` | Whisper，模型名读 `FUSION_WHISPER_MODEL`（默认 `mlx-community/whisper-large-v3-turbo`） |
+| 图像 | `/v1/images/generate` | 需实例挂载 images 路由 + Flux 模型；未挂载时图像节点 live 测试自动 skip |
 
-- 磁盘上有 `Flux-1.lite-8B-MLX-Q4` 模型，但 oMLX 不暴露图像路由 → **图像节点在当前实例上不可用**，live 测试自动 skip。
-- 要启用图像生成：从 `~/claude-home/fusion-mlx` 源码起 dev 服务（含 images 路由 + flux 引擎依赖）到空闲端口，并把节点 `base_url` 指过去；或等 oMLX 后续版本支持。
+- 图像生成要求 fusion-mlx 实例挂载 images 路由并加载 Flux 模型（如 `Flux-1.lite-8B-MLX-Q4`）；未挂载则图像相关节点/阶段在 live 调用时失败，离线测试不受影响。
+- Whisper 转录要求 fusion-mlx 实例已加载 whisper 模型；模型名可用 `FUSION_WHISPER_MODEL` 覆盖。
 
 ## 使用
 
@@ -117,7 +131,7 @@ python3 -m pytest -v -m live          # 仅 live（需 fusion-mlx 运行）
 - 离线测试覆盖节点逻辑（mock 客户端），不依赖 torch / fusion-mlx。
 - `live` 测试在 fusion-mlx 未运行、未鉴权、或对应能力（图像）未挂载时自动 skip。
 - KenBurns / Assemble 测试用真实 ffmpeg 跑极小素材（64x128、<1s），无 ffmpeg 时自动 skip；不依赖 torch / fusion-mlx。
-- 实测（oMLX.app @ 11434 + key）：chat live ✅、TTS live ✅（16s 生成 wav）、image live ⏭ skip（oMLX 无 images 路由）；KenBurns / Assemble 离线 ✅（ffmpeg 8.1.1）。全套 **34 passed + 1 skipped**。
+- 实测（fusion-mlx @ 11434 + key）：chat live ✅、TTS live ✅（16s 生成 wav）、image live ⏭ skip（实例未挂 images 路由）；KenBurns / Assemble 离线 ✅（ffmpeg 8.1.1）。
 
 ## 目录
 

@@ -64,6 +64,54 @@ class TestCheckpointSaveLoadRoundtrip(unittest.TestCase):
         second = self._mgr.load().updated_at
         self.assertNotEqual(first, second)
 
+    def test_series_episode_progress_roundtrip(self):
+        ctx = PipelineContext(
+            job_id="series_rt",
+            job_dir=self._tmpdir,
+            config={
+                "content_type": "series",
+                "template_name": "series_drama",
+                "overrides": {"episode_count": 3},
+                "_completed_episodes": [1, 2],
+                "_episode_finals": ["/tmp/ep1.mp4", "/tmp/ep2.mp4"],
+            },
+        )
+        ctx.completed_stages = ["story_ingest"]
+        self._mgr.save(ctx)
+        loaded = self._mgr.load()
+        self.assertEqual(loaded.completed_episodes, [1, 2])
+        self.assertEqual(loaded.episode_finals, ["/tmp/ep1.mp4", "/tmp/ep2.mp4"])
+
+        restored = PipelineContext(
+            job_id="series_rt",
+            job_dir=self._tmpdir,
+            config={"content_type": "series"},
+        )
+        ok = self._mgr.restore_context(restored)
+        self.assertTrue(ok)
+        self.assertEqual(restored.config["_completed_episodes"], [1, 2])
+        self.assertEqual(restored.config["_episode_finals"], ["/tmp/ep1.mp4", "/tmp/ep2.mp4"])
+
+    def test_old_checkpoint_without_episode_fields_loads(self):
+        legacy = {
+            "job_id": "legacy",
+            "content_type": "series",
+            "completed_stages": ["story_ingest"],
+            "scenes": [],
+            "artifacts": {},
+            "config_overrides": {},
+            "character_registry": [],
+            "global_style": "",
+            "created_at": "2026-07-04T08:00:00",
+            "updated_at": "2026-07-04T08:00:00",
+        }
+        with open(os.path.join(self._tmpdir, "_checkpoint.json"), "w") as f:
+            json.dump(legacy, f)
+        loaded = self._mgr.load()
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded.completed_episodes, [])
+        self.assertEqual(loaded.episode_finals, [])
+
 
 class TestCheckpointCorruptionTolerance(unittest.TestCase):
 

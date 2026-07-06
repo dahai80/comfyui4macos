@@ -54,6 +54,15 @@ video { width: 100%; border-radius: 8px; }
         </div>
         <label>数字人头像路径</label>
         <input id="avatarReference" type="text" placeholder="/path/to/avatar.png">
+        <label>模型选择 (留空用默认;用于对比各模型效果)</label>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:180px"><label>LLM 模型</label><input id="llmModel" type="text" placeholder="Qwen3.5-9B-4bit"></div>
+            <div style="flex:1;min-width:180px"><label>Flux 图像模型</label><input id="fluxModel" type="text" placeholder="mlx-community/FLUX.1-dev-8bit"></div>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:180px"><label>TTS 模型</label><input id="ttsModel" type="text" placeholder="Qwen3-TTS-12Hz-1.7B-Base-8bit"></div>
+            <div style="flex:1;min-width:180px"><label>语音克隆模型</label><input id="voiceCloneModel" type="text" placeholder="fish-audio-s2-pro"></div>
+        </div>
         <label>续跑任务ID (留空新建)</label>
         <input id="resumeJobId" type="text" placeholder="20260704_abc123">
         <button class="btn" id="runBtn" onclick="runPipeline()">🎬 生成视频</button>
@@ -89,6 +98,18 @@ async function runPipeline() {
         episode_count: parseInt(document.getElementById('episodeCount').value) || 30,
         avatar_reference: document.getElementById('avatarReference').value,
     };
+    const configOverrides = {};
+    const llmModel = document.getElementById('llmModel').value.trim();
+    const fluxModel = document.getElementById('fluxModel').value.trim();
+    const ttsModel = document.getElementById('ttsModel').value.trim();
+    const voiceCloneModel = document.getElementById('voiceCloneModel').value.trim();
+    if (llmModel) configOverrides.llm_model = llmModel;
+    if (fluxModel) configOverrides.flux_model = fluxModel;
+    if (ttsModel) configOverrides.tts_model = ttsModel;
+    if (voiceCloneModel) configOverrides.voice_clone_model = voiceCloneModel;
+    if (Object.keys(configOverrides).length > 0) {
+        payload.config_overrides = JSON.stringify(configOverrides);
+    }
     const resumeId = document.getElementById('resumeJobId').value.trim();
     if (resumeId) {
         payload.resume_job_id = resumeId;

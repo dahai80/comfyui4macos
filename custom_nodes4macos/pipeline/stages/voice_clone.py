@@ -39,9 +39,16 @@ class VoiceCloneStage(Stage):
         if not os.path.exists(ref_audio_path):
             raise FileNotFoundError(f"voice ref audio not found: {ref_audio_path}")
 
-        from mlx_audio.utils import load_audio
-        audio = load_audio(ref_audio_path, sample_rate=24000)
-        duration = audio.shape[0] / 24000
+        import soundfile as sf
+        audio, sr = sf.read(ref_audio_path, dtype="float32")
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        if sr != 24000:
+            n_out = int(len(audio) * 24000 / sr)
+            x_old = np.linspace(0, 1, num=len(audio))
+            x_new = np.linspace(0, 1, num=n_out)
+            audio = np.interp(x_new, x_old, audio).astype(np.float32)
+        duration = len(audio) / 24000
         if duration < 3.0:
             raise ValueError(f"voice ref audio too short: {duration:.1f}s, need >=3s")
 
@@ -49,18 +56,7 @@ class VoiceCloneStage(Stage):
         os.makedirs(profile_dir, exist_ok=True)
 
         ref_wav_path = os.path.join(profile_dir, "voice_ref.wav")
-        audio_np = np.array(audio, dtype=np.float32)
-        try:
-            import soundfile as sf
-            sf.write(ref_wav_path, audio_np, 24000)
-        except ImportError:
-            import wave
-            arr = (audio_np * 32767).clip(-32767, 32767).astype("int16")
-            with wave.open(ref_wav_path, "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(24000)
-                wf.writeframes(arr.tobytes())
+        sf.write(ref_wav_path, audio, 24000)
 
         ref_text = ref_text_input.strip()
         ref_text_source = "user"
@@ -96,18 +92,13 @@ class VoiceCloneStage(Stage):
     @staticmethod
     def _auto_transcribe(audio_path: str) -> str:
         try:
-            from mlx_audio.stt.utils import load_model as load_stt_model
-            from mlx_audio.stt.generate import generate_transcription
-
-            stt_model = load_stt_model("mlx-community/whisper-large-v3-turbo")
-            result = generate_transcription(
-                model=stt_model, audio=audio_path, format="txt",
-            )
-            text = getattr(result, "text", "").strip()
-            del stt_model
-            import gc
-            gc.collect()
-            return text
+            from ...fusion_client import FusionMLXClient
+            with FusionMLXClient() as client:
+                if not client.health():
+                    logger.warning("[voice_clone] fusion-mlx unreachable, skip transcribe")
+                    return ""
+                text, _ = client.transcribe(audio_path)
+            return (text or "").strip()
         except Exception as exc:
             logger.warning("[voice_clone] auto-transcribe failed: %s", exc)
             return ""
