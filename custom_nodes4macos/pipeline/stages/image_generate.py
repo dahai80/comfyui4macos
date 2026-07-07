@@ -28,7 +28,7 @@ class ImageGenerateStage(Stage):
 
         width = ctx.config.get("flux_width", 1024)
         height = ctx.config.get("flux_height", 1024)
-        steps = ctx.config.get("flux_steps", 8)
+        steps = ctx.config.get("flux_steps", 4)
         guidance = ctx.config.get("flux_guidance", 4.0)
         seed = ctx.config.get("flux_seed", 0)
         vary_seed = ctx.config.get("flux_vary_seed", True)

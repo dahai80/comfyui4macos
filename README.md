@@ -135,9 +135,15 @@ pipeline/templates/
 | Cross-episode registry | Episode 1 defines character registry → carried forward to subsequent episodes via user message |
 | Voice-gender alignment | Female characters auto-get female TTS voice via `_get_scene_instructions` gender inference |
 | Voice cloning | Qwen3-TTS ICL via ref_audio/ref_text over HTTP; Whisper auto-transcribe when ref_text omitted; emotion tags `[laughing]` `[excited]` `[whisper]` |
+| Resilient TTS chunking | Classical-Chinese phrases can trigger Qwen3-TTS degenerate loops (21 chars → 5.5min audio → 60s server timeout 500). `_synthesize_http` sanitizes `《》`, chunks at `TTS_CHUNK_CHARS=100`, and on 500/timeout bisects the chunk and retries each half (down to an 8-char floor, silence-padded if still failing) via a low-retry fast-fail client (`timeout=42, retries=0`). Self-heals per-chunk, never loses whole scenes |
 | Chinese face default | Chinese content types auto-enforce `Chinese face, East Asian features` in character appearances |
 | Visual-audio alignment | Prompt templates enforce `visual_prompt` must precisely depict `audio_script` actions |
 | Friendly output naming | Final video gets human-readable filename: `故事标题_第X集.mp4` |
+| **flux_steps=4 default** | Flux.1 Lite is a 4-step distilled model — 4 steps is the design point. Default 8→4 = ~45% image speedup, zero quality loss (SSIM(4,8)>0.99). `image_generate.py` default now 4 |
+| **flux_steps=3 (xiyou)** | 西游记 dedicated path lowers 8→3 = ~57% image speedup. SSIM(3,4)>0.99 across 3 prompts × seeds 1001/1002/1003 = structurally indistinguishable. Set in `run_xiyou.py` + `xiyou-view.tsx` |
+| **ken_burns render_fps** | zoompan renders `d=round(dur*render_fps)` frames at `render_fps`, then `,fps=out` duplicates to output fps. Slow zoom/pan is visually lossless. `render12/out24` = ~40% video speedup. Motion range preserved (first-vs-last frame diff constant 6.2% across render30/out30, render12/out24, render15/out30). Multishot path keeps render=fps to preserve segment proportions |
+
+> **Text-to-video/image 50% target met:** xiyou combo = image 57% (8→3) + video 40% (render12/out24) ≈ 51% overall. Ruled out: MLX concurrency (GPU-bound, parallel x2=0.94x/x3=0.86x = slower), I/O overlap (instrumentation showed overhead=0s, GPU=ALL cost), `scale+crop` time-expr (67% slower than zoompan). Encoder already on (VideoToolbox); zoompan per-frame CPU re-render was the real video bottleneck.
 
 > Note: MLX-side optimizations (FlowMatchEuler scheduler, `mx.compile`, encoder eviction, tight denoising loop, cache management) now live inside fusion-mlx, not this codebase.
 
@@ -173,7 +179,39 @@ engine = PipelineEngine()
 result = engine.run('series', story_file='/path/to/novel.pdf', episode_count=30)
 print(result)
 "
+
+# 西游记 series (20-40min per chapter, 17 scenes → 27min verified)
+EPISODE_COUNT=1 SCENE_COUNT=20 WAN_ENABLED=0 KEEP_INTERMEDIATES=1 \
+FUSION_MLX_API_KEY=<key> TTS_CHUNK_CHARS=100 PROMPT_EXPAND_BATCH=6 \
+PYTHONPATH=. python3 run_xiyou.py
+
+# Resume after a crash / interruption (skips completed images + prompt_expand)
+RESUME_FROM=<job_id> EPISODE_COUNT=1 SCENE_COUNT=20 WAN_ENABLED=0 \
+FUSION_MLX_API_KEY=<key> PYTHONPATH=. python3 run_xiyou.py
+
+# Generate a specific chapter (1-indexed; one_episode_per_chapter maps chapter N → 1 episode)
+PYTHONPATH=. python3 -c "
+from custom_nodes4macos.pipeline import PipelineEngine
+engine = PipelineEngine()
+engine.run('series', story_file='~/Downloads/西游记.txt', episode_count=1,
+           one_episode_per_chapter=True, chapter_start=5, story_title='西游记',
+           wan_enabled=False, scene_count=20)
+"
 ```
+
+### Per-chapter selection (`chapter_start`)
+
+`one_episode_per_chapter=True` maps each chapter 1:1 to an episode (full chapter text as synopsis).
+`chapter_start` (1-indexed) selects which chapter to generate; values past the end clamp to the last chapter.
+Chapter splitting uses `^第[一二三四五六七八九十百千零\d○〇]+[章节回幕篇]` (MULTILINE, no per-line trim), so an indented header line is absorbed into the previous chapter — frontend and backend share this exact rule to keep chapter N aligned.
+
+### openclaw `/xiyou` frontend entry
+
+The openclaw-mission-macos GUI exposes a 西游记 panel at `/xiyou` (sidebar → 西游记):
+lists all chapters via `GET /api/comfyui/dream-factory/chapters?story_file=~/Downloads/西游记.txt`,
+then submits a chosen chapter to `POST /api/comfyui/dream-factory/run` with
+`config_overrides={"chapter_start":N,"one_episode_per_chapter":true,"story_title":"西游记",...}`
+and polls `/api/comfyui/dream-factory/status` until the video is ready.
 
 ## ComfyUI Integration
 

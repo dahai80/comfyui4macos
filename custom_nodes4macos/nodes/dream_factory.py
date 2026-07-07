@@ -30,6 +30,7 @@ class FusionMLXDreamFactory:
                 "story_file": ("STRING", {"default": ""}),
                 "episode_count": ("INT", {"default": 30, "min": 1, "max": 200}),
                 "episode_duration_min": ("INT", {"default": 0, "min": 0, "max": 120}),
+                "chapter_start": ("INT", {"default": 1, "min": 1, "max": 1000}),
                 "avatar_reference": ("STRING", {"default": ""}),
                 "resume_job_id": ("STRING", {"default": ""}),
                 "config_overrides": ("STRING", {"multiline": True, "default": "{}"}),
@@ -52,6 +53,7 @@ class FusionMLXDreamFactory:
         story_file: str = "",
         episode_count: int = 30,
         episode_duration_min: int = 0,
+        chapter_start: int = 1,
         avatar_reference: str = "",
         resume_job_id: str = "",
         config_overrides: str = "{}",
@@ -73,6 +75,8 @@ class FusionMLXDreamFactory:
             overrides["episode_count"] = episode_count
         if episode_duration_min > 0:
             overrides["episode_duration_min"] = episode_duration_min
+        if chapter_start > 1:
+            overrides["chapter_start"] = chapter_start
         if avatar_reference and avatar_reference.strip():
             overrides["avatar_reference"] = avatar_reference.strip()
         try:

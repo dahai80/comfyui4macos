@@ -127,9 +127,12 @@ class FusionMLXClient:
             payload["max_tokens"] = max_tokens
         if chat_template_kwargs:
             payload["chat_template_kwargs"] = chat_template_kwargs
+            if "enable_thinking" in chat_template_kwargs:
+                payload["enable_thinking"] = chat_template_kwargs["enable_thinking"]
         logger.info(
-            "chat model=%s msgs=%d json_mode=%s max_tokens=%s ctk=%s",
+            "chat model=%s msgs=%d json_mode=%s max_tokens=%s ctk=%s et=%s",
             payload["model"], len(messages), json_mode, max_tokens, bool(chat_template_kwargs),
+            payload.get("enable_thinking"),
         )
         resp = self._request("POST", "/v1/chat/completions", json_body=payload, timeout=timeout)
         if resp.status_code != 200:

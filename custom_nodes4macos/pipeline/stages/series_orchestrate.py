@@ -10,6 +10,7 @@ from ..stage import Stage, StageInfo
 from .prompt_expand import PromptExpandStage
 from .image_generate import ImageGenerateStage
 from .tts_synthesize import TTSSynthesizeStage
+from .wan_video import WanVideoStage
 from .ken_burns import KenBurnsStage
 from .assemble import AssembleStage
 from .sfx import SFXStage
@@ -48,6 +49,7 @@ class SeriesOrchestratorStage(Stage):
         PromptExpandStage,
         ImageGenerateStage,
         TTSSynthesizeStage,
+        WanVideoStage,
         KenBurnsStage,
         AssembleStage,
         SFXStage,

@@ -46,6 +46,22 @@ class PromptExpandStage(Stage):
         if self._skip_if_completed(ctx):
             return
 
+        ckpt_path = os.path.join(ctx.job_dir, "_checkpoint.json")
+        if os.path.exists(ckpt_path):
+            try:
+                with open(ckpt_path, encoding="utf-8") as f:
+                    d = json.load(f)
+                existing = d.get("scenes") or []
+                if existing:
+                    ctx.scenes = existing
+                    if d.get("global_style") and "global_style" not in ctx.config:
+                        ctx.config["global_style"] = d["global_style"]
+                    ctx.update_progress("prompt_expand", 1, 1)
+                    logger.info("prompt_expand skipped (checkpoint scenes=%d) %s", len(existing), ctx.job_dir)
+                    return
+            except Exception as exc:
+                logger.warning("prompt_expand checkpoint reuse failed: %s", str(exc)[:80])
+
         story_seed = ctx.config.get("story_seed", "")
         episodes = ctx.config.get("episodes", [])
 
@@ -152,39 +168,68 @@ class PromptExpandStage(Stage):
                 ep_seed += f"悬念结尾：{ep_cliffhanger}\n"
 
             existing_registry = ctx.config.get("character_registry", [])
-            user_msg = self._build_user_message(
-                ep_seed, ep_title, scene_count, style_preset, style_text,
-                character_registry=existing_registry,
-            )
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_msg},
-            ]
+            # 分批生成：Qwen3.5-9B 单次 6 镜稳定（思考开销约 12k token），>6 镜易触顶截断。
+            # 按 6 镜/批切分，每批带前情提要承接剧情，合并后重编号。
+            batch_size = int(os.environ.get("PROMPT_EXPAND_BATCH", "6"))
+            ep_scenes: list[dict] = []
+            prev_recap = ""
+            remaining = scene_count
+            batch_idx = 0
+            while remaining > 0:
+                bsz = min(batch_size, remaining)
+                start_id = scene_count - remaining + 1
+                end_id = start_id + bsz - 1
+                user_msg = self._build_user_message(
+                    ep_seed, ep_title, bsz, style_preset, style_text,
+                    character_registry=existing_registry,
+                )
+                if prev_recap:
+                    user_msg += (
+                        f"\n前情提要（已生成第1-{start_id-1}镜）：{prev_recap}\n"
+                        f"本批次生成第{start_id}-{end_id}镜（共{bsz}镜），请承接前情继续剧情，"
+                        f"不要重复已生成的场景。"
+                    )
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_msg},
+                ]
+                parsed = PromptExpandStage._generate_with_retry(
+                    ctx, model_manager, messages, temperature,
+                    ep_idx, ep_title, ep_synopsis, ep_key_scenes, ep_cliffhanger,
+                    bsz,
+                )
+                batch_scenes = parsed.get("scenes", [])
+                if not batch_scenes:
+                    logger.warning(
+                        "prompt_expand ep%d batch%d 产 0 镜，终止本集批次（已累计 %d 镜）",
+                        ep_idx + 1, batch_idx, len(ep_scenes),
+                    )
+                    break
+                for scene in batch_scenes:
+                    scene["episode_id"] = episode.get("episode_id", ep_idx + 1)
+                    scene["episode_title"] = ep_title
+                self._reinforce_visual_audio_correlation(batch_scenes)
+                ep_scenes.extend(batch_scenes)
+                prev_recap = "；".join(
+                    (s.get("audio_script", "") or s.get("visual_prompt", ""))[:50]
+                    for s in batch_scenes[-2:]
+                )
+                if "global_style" in parsed and "global_style" not in ctx.config:
+                    ctx.config["global_style"] = parsed["global_style"]
+                    logger.info("global_style from LLM: %s", parsed["global_style"])
+                self._merge_character_registry(ctx, parsed)
+                existing_registry = ctx.config.get("character_registry", [])
+                if existing_registry:
+                    ctx.config["character_registry"] = existing_registry
+                remaining -= bsz
+                batch_idx += 1
+                logger.info(
+                    "prompt_expand ep%d batch%d: +%d 镜 (累计 %d/%d)",
+                    ep_idx + 1, batch_idx, len(batch_scenes), len(ep_scenes), scene_count,
+                )
 
-            parsed = PromptExpandStage._generate_with_retry(
-                ctx, model_manager, messages, temperature,
-                ep_idx, ep_title, ep_synopsis, ep_key_scenes, ep_cliffhanger,
-                scene_count,
-            )
-            scenes = parsed.get("scenes", [])
-            for scene in scenes:
-                scene["episode_id"] = episode.get("episode_id", ep_idx + 1)
-                scene["episode_title"] = ep_title
-            global_scene_offset = self._renumber_scenes(
-                scenes, global_scene_offset,
-            )
-
-            if "global_style" in parsed and "global_style" not in ctx.config:
-                ctx.config["global_style"] = parsed["global_style"]
-                logger.info("global_style from LLM: %s", parsed["global_style"])
-
-            self._merge_character_registry(ctx, parsed)
-
-            existing_registry = ctx.config.get("character_registry", [])
-            if existing_registry:
-                ctx.config["character_registry"] = existing_registry
-
-            self._reinforce_visual_audio_correlation(scenes)
+            scenes = ep_scenes
+            global_scene_offset = self._renumber_scenes(scenes, global_scene_offset)
             all_scenes.extend(scenes)
             ctx.scenes = all_scenes
             ctx.update_progress("prompt_expand", ep_idx + 1, len(episodes))
@@ -364,6 +409,32 @@ class PromptExpandStage(Stage):
         return path.read_text(encoding="utf-8")
 
     @staticmethod
+    def _condense_seed(seed: str, max_chars: int = 4000) -> str:
+        """长章节种子均匀采样到 max_chars，保留起承转合覆盖度。
+
+        one_episode_per_chapter 的种子是整回原文（7-12k 字），全量喂入会让
+        Qwen3.5 复述原文、思考超时、JSON 截断。均匀采样保留首尾+中间要点，
+        显著提升 JSON 合规率，同时不丢剧情主线。
+        """
+        s = seed.strip()
+        if len(s) <= max_chars:
+            return s
+        sentences = re.split(r'(?<=[。！？!?；;\n])', s)
+        sentences = [x for x in sentences if x.strip()]
+        if len(sentences) <= 2:
+            return s[:max_chars]
+        total = sum(len(x) for x in sentences)
+        # 保留约 max_chars/total 比例的句子：step = 总字数/目标字数（向上取整）
+        step = max(1, int(total / max_chars) + 1)
+        picked = sentences[::step]
+        if picked[0] is not sentences[0]:
+            picked.insert(0, sentences[0])
+        if picked[-1] is not sentences[-1]:
+            picked.append(sentences[-1])
+        out = "".join(picked)
+        return out[:max_chars] if len(out) > int(max_chars * 1.15) else out
+
+    @staticmethod
     def _build_user_message(
         story_seed: str,
         episode_title: str,
@@ -372,8 +443,9 @@ class PromptExpandStage(Stage):
         style_text: str,
         character_registry: list | None = None,
     ) -> str:
+        condensed = PromptExpandStage._condense_seed(story_seed)
         msg = (
-            f"故事种子：{story_seed.strip()}\n"
+            f"故事种子：{condensed}\n"
             f"剧集标题：{episode_title.strip() or '（待定）'}\n"
             f"目标分镜数：{scene_count}\n"
             f"画风预设：{style_preset}（{style_text}）\n"
@@ -394,7 +466,8 @@ class PromptExpandStage(Stage):
             )
         msg += (
             f"请严格按 schema 输出 JSON，分镜数必须等于 {scene_count}。"
-            "思考结束后只输出JSON。"
+            "禁止复述或照搬故事种子原文，audio_script 必须是你原创的旁白。"
+            "思考不超过150字，思考结束后立即输出JSON，最后一个字符必须是}。"
         )
         return msg
 
@@ -490,9 +563,9 @@ class PromptExpandStage(Stage):
 
     @staticmethod
     def _generate_http(handle, messages: list[dict], temperature: float) -> str:
-        # 8192 经验值：Qwen3.5-9B 对复杂编剧 prompt 会先输出约 7-8k token 的
-        # "Thinking Process:" 再吐 JSON；16384 会让模型过度思考触顶无 JSON，8192 稳定产出。
-        max_tokens = int(os.environ.get("PROMPT_EXPAND_MAX_TOKENS", "8192"))
+        # 实测：8192 时 Qwen3.5-9B 思考+复述易触顶截断无 JSON（17208 chars 全是思考）；
+        # 16384 给足余量，配合种子压缩，稳定产出含 motion_hint 的完整 JSON（3-20 镜）。
+        max_tokens = int(os.environ.get("PROMPT_EXPAND_MAX_TOKENS", "16384"))
         content, _ = handle.client.chat(
             messages,
             model=handle.model_name,
@@ -531,6 +604,8 @@ class PromptExpandStage(Stage):
     def _parse_json(content: str) -> dict | list:
         text = PromptExpandStage._strip_thinking(content.strip())
         text = re.sub(r'"(\w+):\s*"', r'"\1": "', text)
+        # 修复字段间缺失逗号：value"\n  "key" → value",\n  "key"（Qwen 大输入常见）
+        text = re.sub(r'(["\]\}])\s*\n(\s*")', r'\1,\n\2', text)
         if text.startswith("```"):
             parts = text.split("```")
             if len(parts) >= 3:
@@ -576,4 +651,69 @@ class PromptExpandStage(Stage):
                             return json.loads(candidate[:end + 1])
                         except json.JSONDecodeError:
                             continue
+            # 最后一道兜底：从截断的 JSON 里抢救已完成的 scene 对象
+            salvaged = PromptExpandStage._salvage_scenes(content)
+            if salvaged:
+                logger.warning(
+                    "prompt_expand _parse_json: 输出截断/畸形，抢救出 %d 个完整分镜",
+                    len(salvaged.get("scenes", [])),
+                )
+                return salvaged
             raise
+
+    @staticmethod
+    def _salvage_scenes(content: str) -> dict | None:
+        """从截断/畸形的 LLM 输出中抢救已完成的 scene 对象。
+
+        Qwen3.5 在大场景数下常触顶截断，末尾 scene 不完整导致整体 JSON 解析失败。
+        这里用括号平衡逐个提取 scenes 数组内完整的 scene 对象，丢弃末尾半截。
+        """
+        m = re.search(r'"scenes"\s*:\s*\[', content)
+        if not m:
+            return None
+        i = m.end()
+        n = len(content)
+        scenes: list[dict] = []
+        while i < n:
+            while i < n and content[i] in ' \t\r\n,':
+                i += 1
+            if i >= n or content[i] != '{':
+                break
+            depth = 0
+            start = i
+            in_str = False
+            esc = False
+            obj_end = -1
+            while i < n:
+                c = content[i]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif c == '\\':
+                        esc = True
+                    elif c == '"':
+                        in_str = False
+                else:
+                    if c == '"':
+                        in_str = True
+                    elif c == '{':
+                        depth += 1
+                    elif c == '}':
+                        depth -= 1
+                        if depth == 0:
+                            obj_end = i
+                            break
+                i += 1
+            if obj_end < 0:
+                break
+            try:
+                obj = json.loads(content[start:obj_end + 1])
+                if isinstance(obj, dict) and ("scene_id" in obj or "audio_script" in obj):
+                    scenes.append(obj)
+            except json.JSONDecodeError:
+                pass
+            i = obj_end + 1
+        if not scenes:
+            return None
+        logger.info("prompt_expand salvage: 提取到 %d 个完整分镜", len(scenes))
+        return {"scenes": scenes}

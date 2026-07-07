@@ -271,7 +271,7 @@ class TestTTSToKenBurnsDuration(unittest.TestCase):
         with open(img_path, "wb") as f:
             f.write(b"png")
         scenes = [{"scene_id": 1, "duration_seconds": 5.0}]
-        ctx = _make_ctx(scenes, self._tmpdir, {"ken_burns_workers": 1, "ken_burns_fps": 30})
+        ctx = _make_ctx(scenes, self._tmpdir, {"ken_burns_workers": 1, "ken_burns_fps": 30, "ken_burns_render_fps": 30})
         ctx.set_artifact(1, "image", img_path)
 
         mock_ffmpeg.probe_has_audio.return_value = False

@@ -85,7 +85,7 @@ class TestKenBurnsParallelExecution(unittest.TestCase):
 
         mock_ffmpeg.probe_has_audio.return_value = False
 
-        def fake_render_clip(img, audio, dur, preset, w, h, fps, sid, out):
+        def fake_render_clip(img, audio, dur, preset, w, h, fps, render_fps, sid, out):
             os.makedirs(os.path.dirname(out), exist_ok=True)
             with open(out, "wb") as f:
                 f.write(b"mp4")
@@ -107,7 +107,7 @@ class TestKenBurnsParallelExecution(unittest.TestCase):
 
         mock_ffmpeg.probe_has_audio.return_value = False
 
-        def flaky_render(img, audio, dur, preset, w, h, fps, sid, out):
+        def flaky_render(img, audio, dur, preset, w, h, fps, render_fps, sid, out):
             if sid == 2:
                 raise RuntimeError("scene 2 fails")
             os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -148,7 +148,7 @@ class TestKenBurnsTaskCollection(unittest.TestCase):
             stage.process(ctx, MagicMock())
             # 只渲染 scene 2
             self.assertEqual(mock_render.call_count, 1)
-            rendered_sid = mock_render.call_args.args[7]
+            rendered_sid = mock_render.call_args.args[8]
             self.assertEqual(rendered_sid, 2)
 
     @patch("custom_nodes4macos.pipeline.stages.ken_burns.ffmpeg_util")
@@ -199,7 +199,7 @@ class TestRenderClipFfmpegArgs(unittest.TestCase):
                 f.write(b"mp4")
         mock_ffmpeg.run_ffmpeg.side_effect = fake_run
 
-        KenBurnsStage._render_clip(img, audio, 2.0, "zoom-in", 1080, 1920, 30, 1, out)
+        KenBurnsStage._render_clip(img, audio, 2.0, "zoom-in", 1080, 1920, 30, 30, 1, out)
 
         call_args = mock_ffmpeg.run_ffmpeg.call_args.args[0]
         self.assertIn("-shortest", call_args)
@@ -222,7 +222,7 @@ class TestRenderClipFfmpegArgs(unittest.TestCase):
                 f.write(b"mp4")
         mock_ffmpeg.run_ffmpeg.side_effect = fake_run
 
-        KenBurnsStage._render_clip(img, None, 2.0, "zoom-in", 1080, 1920, 30, 1, out)
+        KenBurnsStage._render_clip(img, None, 2.0, "zoom-in", 1080, 1920, 30, 30, 1, out)
 
         call_args = mock_ffmpeg.run_ffmpeg.call_args.args[0]
         self.assertIn("-t", call_args)
@@ -241,7 +241,7 @@ class TestRenderClipFfmpegArgs(unittest.TestCase):
         mock_ffmpeg.run_ffmpeg.return_value = None  # ffmpeg "成功"但未产出
 
         with self.assertRaises(RuntimeError):
-            KenBurnsStage._render_clip(img, None, 1.0, "zoom-in", 64, 128, 10, 1, out)
+            KenBurnsStage._render_clip(img, None, 1.0, "zoom-in", 64, 128, 10, 10, 1, out)
 
 
 if __name__ == "__main__":

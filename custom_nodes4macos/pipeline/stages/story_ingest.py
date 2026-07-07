@@ -34,6 +34,8 @@ class StoryIngestStage(Stage):
         episode_duration_min = ctx.config.get("episode_duration_min", 25)
         content_type = ctx.config.get("content_type", "series")
 
+        if story_file:
+            story_file = os.path.expanduser(story_file)
         if story_file and os.path.isfile(story_file):
             logger.info("ingesting story file: %s", story_file)
             story_text = self._read_file(story_file)
@@ -48,6 +50,47 @@ class StoryIngestStage(Stage):
 
         chapters = self._split_chapters(story_text)
         logger.info("split into %d chapters", len(chapters))
+
+        if ctx.config.get("one_episode_per_chapter", False):
+            limit = int(ctx.config.get("episode_count", len(chapters)) or len(chapters))
+            chapter_start = int(ctx.config.get("chapter_start", 1) or 1)
+            if chapter_start < 1:
+                chapter_start = 1
+            start = chapter_start - 1
+            if start >= len(chapters):
+                logger.warning(
+                    "story_ingest chapter_start=%d beyond chapter count=%d, clamping to last",
+                    chapter_start, len(chapters),
+                )
+                start = max(0, len(chapters) - 1)
+            if limit > 0:
+                selected = chapters[start:start + limit]
+            else:
+                selected = chapters[start:]
+            logger.info(
+                "one_episode_per_chapter slice: chapter_start=%d count=%d -> %d chapters",
+                chapter_start, limit if limit > 0 else len(chapters) - start, len(selected),
+            )
+            episodes = []
+            for ch in selected:
+                episodes.append({
+                    "episode_id": ch["chapter_id"],
+                    "title": ch["title"],
+                    "chapters": f"第{ch['chapter_id']}章",
+                    "synopsis": ch["text"],
+                    "key_scenes": [],
+                    "cliffhanger": "",
+                })
+            ctx.scenes = episodes
+            ctx.config["episodes"] = episodes
+            ctx.config["story_title"] = ctx.config.get("story_title") or "西游记"
+            ctx.update_progress("story_ingest", 1, 1)
+            logger.info(
+                "story_ingest one_episode_per_chapter: %d episodes "
+                "(1:1 chapter mapping, full chapter text as synopsis)",
+                len(episodes),
+            )
+            return
 
         episodes = []
         with model_manager.acquire("llm") as handle:
@@ -146,7 +189,7 @@ class StoryIngestStage(Stage):
     def _split_chapters(text: str) -> list[dict]:
         import re
         patterns = [
-            r"^第[一二三四五六七八九十百千零\d]+[章节回幕篇]",
+            r"^第[一二三四五六七八九十百千零\d○〇]+[章节回幕篇]",
             r"^Chapter\s+\d+",
             r"^CHAPTER\s+[IVXLCDM\d]+",
             r"^[\d]+\.\s+\S",
