@@ -137,7 +137,7 @@ class TestBuildZoompanMultishot(unittest.TestCase):
 
     def test_two_segments_has_if_and_boundary(self):
         result = _build_zoompan_multishot(
-            ["zoom-in", "pan-right"], [120, 120], 240, 1080, 1920, 30,
+            ["zoom-in", "pan-right"], [120, 120], 240, 1080, 1920, 30, 30,
         )
         self.assertIn("zoompan", result)
         self.assertIn("if(lt(on,120)", result)
@@ -146,7 +146,7 @@ class TestBuildZoompanMultishot(unittest.TestCase):
 
     def test_three_segments_nested_ifs(self):
         result = _build_zoompan_multishot(
-            ["zoom-in", "zoom-out", "pan-left"], [80, 80, 80], 240, 1080, 1920, 30,
+            ["zoom-in", "zoom-out", "pan-left"], [80, 80, 80], 240, 1080, 1920, 30, 30,
         )
         self.assertIn("if(lt(on,80)", result)
         self.assertIn("if(lt(on,160)", result)
@@ -157,7 +157,7 @@ class TestBuildZoompanMultishot(unittest.TestCase):
 
     def test_uses_local_segment_duration(self):
         result = _build_zoompan_multishot(
-            ["zoom-in", "zoom-in"], [100, 140], 240, 1080, 1920, 30,
+            ["zoom-in", "zoom-in"], [100, 140], 240, 1080, 1920, 30, 30,
         )
         self.assertIn("1+0.25*on/100", result)
         self.assertIn("1+0.25*(on-100)/140", result)
@@ -182,9 +182,9 @@ class TestRenderScene(unittest.TestCase):
         with patch.object(KenBurnsStage, "_render_clip") as mock_clip, \
                 patch.object(KenBurnsStage, "_run_zoompan_render") as mock_run, \
                 patch.object(kb, "_detect_silence") as mock_silence:
-            stage._render_scene(self.img, self.audio, 5.0, "random", 1080, 1920, 30, 1, self.out, cfg)
+            stage._render_scene(self.img, self.audio, 5.0, "random", 1080, 1920, 30, 30, 1, self.out, cfg)
         mock_clip.assert_called_once()
-        self.assertEqual(mock_clip.call_args.args[7], 1)
+        self.assertEqual(mock_clip.call_args.args[8], 1)
         mock_run.assert_not_called()
         mock_silence.assert_not_called()
 
@@ -193,9 +193,9 @@ class TestRenderScene(unittest.TestCase):
         with patch.object(KenBurnsStage, "_render_clip") as mock_clip, \
                 patch.object(KenBurnsStage, "_run_zoompan_render") as mock_run, \
                 patch.object(kb, "_detect_silence", return_value=[]):
-            stage._render_scene(self.img, self.audio, 5.0, "random", 1080, 1920, 30, 2, self.out, self.cut_cfg)
+            stage._render_scene(self.img, self.audio, 5.0, "random", 1080, 1920, 30, 30, 2, self.out, self.cut_cfg)
         mock_clip.assert_called_once()
-        self.assertEqual(mock_clip.call_args.args[7], 2)
+        self.assertEqual(mock_clip.call_args.args[8], 2)
         mock_run.assert_not_called()
 
     def test_short_duration_falls_back(self):
@@ -203,7 +203,7 @@ class TestRenderScene(unittest.TestCase):
         with patch.object(KenBurnsStage, "_render_clip") as mock_clip, \
                 patch.object(KenBurnsStage, "_run_zoompan_render") as mock_run, \
                 patch.object(kb, "_detect_silence", return_value=[(1.0, 1.2)]):
-            stage._render_scene(self.img, self.audio, 2.0, "random", 1080, 1920, 30, 3, self.out, self.cut_cfg)
+            stage._render_scene(self.img, self.audio, 2.0, "random", 1080, 1920, 30, 30, 3, self.out, self.cut_cfg)
         mock_clip.assert_called_once()
         mock_run.assert_not_called()
 
@@ -212,7 +212,7 @@ class TestRenderScene(unittest.TestCase):
         with patch.object(KenBurnsStage, "_render_clip") as mock_clip, \
                 patch.object(KenBurnsStage, "_run_zoompan_render") as mock_run, \
                 patch.object(kb, "_detect_silence", return_value=[(2.0, 2.4)]):
-            stage._render_scene(self.img, self.audio, 5.0, "random", 1080, 1920, 30, 4, self.out, self.cut_cfg)
+            stage._render_scene(self.img, self.audio, 5.0, "random", 1080, 1920, 30, 30, 4, self.out, self.cut_cfg)
         mock_run.assert_called_once()
         zoompan_arg = mock_run.call_args.args[3]
         self.assertIn("if(", zoompan_arg)
@@ -224,7 +224,7 @@ class TestRenderScene(unittest.TestCase):
         with patch.object(KenBurnsStage, "_render_clip"), \
                 patch.object(KenBurnsStage, "_run_zoompan_render") as mock_run, \
                 patch.object(kb, "_detect_silence", return_value=silences):
-            stage._render_scene(self.img, self.audio, 6.0, "random", 1080, 1920, 30, 5, self.out, self.cut_cfg)
+            stage._render_scene(self.img, self.audio, 6.0, "random", 1080, 1920, 30, 30, 5, self.out, self.cut_cfg)
         mock_run.assert_called_once()
         zoompan_arg = mock_run.call_args.args[3]
         self.assertEqual(zoompan_arg.count("if("), 6)
@@ -276,7 +276,7 @@ class TestAudioCutIntegration(unittest.TestCase):
         self._make_tone_silence_tone(audio)
         stage = KenBurnsStage()
         cut_cfg = (True, -30, 0.3, 4, 3.0)
-        stage._render_scene(img, audio, 4.5, "random", 1080, 1920, 30, 1, out, cut_cfg)
+        stage._render_scene(img, audio, 4.5, "random", 1080, 1920, 30, 30, 1, out, cut_cfg)
         self.assertTrue(os.path.exists(out))
         self.assertGreater(os.path.getsize(out), 1000)
 

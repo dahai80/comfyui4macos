@@ -179,6 +179,52 @@ class TestStoryIngestProcess(unittest.TestCase):
         stage.process(ctx, mock_mgr)
         self.assertGreater(len(ctx.scenes), 0)
 
+    def test_process_chapter_start_selects_nth_chapter(self):
+        text = (
+            "第一章 开端\n第一段内容\n"
+            "第二章 发展\n第二段内容\n"
+            "第三章 结局\n第三段内容"
+        )
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write(text)
+            f.flush()
+            story_path = f.name
+        try:
+            tmpdir = tempfile.mkdtemp()
+            ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+                "story_file": story_path,
+                "episode_count": 1,
+                "one_episode_per_chapter": True,
+                "chapter_start": 2,
+            })
+            stage = StoryIngestStage()
+            stage.process(ctx, MagicMock())
+            self.assertEqual(len(ctx.scenes), 1)
+            self.assertIn("第二章", ctx.scenes[0]["title"])
+        finally:
+            os.unlink(story_path)
+
+    def test_process_chapter_start_clamps_past_end(self):
+        text = "第一章 开端\n内容\n第二章 发展\n内容"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write(text)
+            f.flush()
+            story_path = f.name
+        try:
+            tmpdir = tempfile.mkdtemp()
+            ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={
+                "story_file": story_path,
+                "episode_count": 1,
+                "one_episode_per_chapter": True,
+                "chapter_start": 99,
+            })
+            stage = StoryIngestStage()
+            stage.process(ctx, MagicMock())
+            self.assertEqual(len(ctx.scenes), 1)
+            self.assertIn("第二章", ctx.scenes[0]["title"])
+        finally:
+            os.unlink(story_path)
+
     def test_process_raises_without_story(self):
         tmpdir = tempfile.mkdtemp()
         ctx = PipelineContext(job_id="test", job_dir=tmpdir, config={})

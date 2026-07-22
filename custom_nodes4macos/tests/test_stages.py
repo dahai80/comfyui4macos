@@ -17,29 +17,41 @@ from custom_nodes4macos.pipeline.stages.tts_synthesize import TTSSynthesizeStage
 class TestBuildZoompan(unittest.TestCase):
 
     def test_zoom_in(self):
-        result = _build_zoompan("zoom-in", 1080, 1920, 30, 240)
+        result = _build_zoompan("zoom-in", 1080, 1920, 30, 30, 240)
         self.assertIn("zoompan", result)
         self.assertIn("1+0.25*on/240", result)
 
     def test_zoom_out(self):
-        result = _build_zoompan("zoom-out", 1080, 1920, 30, 240)
+        result = _build_zoompan("zoom-out", 1080, 1920, 30, 30, 240)
         self.assertIn("1.25-0.25*on/240", result)
 
     def test_pan_right(self):
-        result = _build_zoompan("pan-right", 1080, 1920, 30, 240)
+        result = _build_zoompan("pan-right", 1080, 1920, 30, 30, 240)
         self.assertIn("on/240", result)
 
     def test_pan_left(self):
-        result = _build_zoompan("pan-left", 1080, 1920, 30, 240)
+        result = _build_zoompan("pan-left", 1080, 1920, 30, 30, 240)
         self.assertIn("1-on/240", result)
 
     def test_unknown_defaults_to_zoom_in(self):
-        result = _build_zoompan("unknown_preset", 1080, 1920, 30, 240)
+        result = _build_zoompan("unknown_preset", 1080, 1920, 30, 30, 240)
         self.assertIn("1+0.2*on/240", result)
 
     def test_random_picks_one(self):
-        result = _build_zoompan("random", 1080, 1920, 30, 240)
+        result = _build_zoompan("random", 1080, 1920, 30, 30, 240)
         self.assertIn("zoompan", result)
+
+    def test_render_fps_halving_appends_fps_filter(self):
+        # render_fps < out_fps 时应追加 ,fps=out_fps 补帧，且 d 用 render_frames
+        result = _build_zoompan("zoom-in", 1080, 1920, 30, 15, 120)
+        self.assertIn("fps=15", result)
+        self.assertIn(",fps=30", result)
+        self.assertIn("d=120", result)
+
+    def test_render_fps_equal_no_extra_fps(self):
+        # render_fps == out_fps 时不追加 ,fps=
+        result = _build_zoompan("zoom-in", 1080, 1920, 30, 30, 240)
+        self.assertNotIn(",fps=30", result)
 
 
 class TestKenBurnsStageInfo(unittest.TestCase):

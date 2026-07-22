@@ -23,6 +23,7 @@
     {
       "scene_id": 1,
       "visual_prompt": "Detailed English visual description for image generation, including character appearance from registry, composition, lighting, mood, camera angle",
+      "motion_hint": "English motion description for video generation: the specific action characters perform and their facial expressions, e.g. 'Sun Wukong swings his staff, snarling; the demon stumbles back in fear; camera quick push-in'",
       "audio_script": "中文旁白或对白，情感丰富，符合剧情节奏",
       "sound_effect": "环境音效描述",
       "characters": ["角色名1", "角色名2"],
@@ -37,6 +38,7 @@
 1. **scene_id** 从 1 开始递增，分镜数严格等于用户要求的数量
 2. **visual_prompt** 必须是英文，详细描述画面构图、光影、色调、视角，必须包含出场角色的外观描述以保持跨场景一致性
 3. **画面-旁白强关联**：`visual_prompt` 必须精准呈现 `audio_script` 中描述的关键动作、场景变化和人物状态。观众听到旁白时，画面必须与旁白内容直接对应，而非泛化的氛围图。例如旁白说"女子推开门"，visual_prompt 必须包含 "woman pushing open a door"。
+3.1. **motion_hint** 必须是英文，描述本镜角色具体的动作与表情（动作幻觉驱动用），让画面"动起来"。必须包含：(a) 角色正在做什么动作（挥棒、跃起、跪拜、转身、推门等）；(b) 角色面部表情（怒目、含泪、惊惧、微笑、咬牙等）；(c) 可选的镜头运动（push-in、pan、static 等）。例如 "Sun Wukong leaps and swings his golden staff, eyes blazing with fury; the demon recoils in terror; camera quick push-in"。不要写静态构图词，要写动态行为。
 4. **audio_script** 必须是中文，文字优美有节奏感，适合配音朗读
 5. **duration_seconds** 固定为 90（不要写其他值）。**audio_script 每镜必须 300-400 个汉字**，旁白充分展开、细节丰富、有节奏感，确保 TTS 朗读时长约 85-115 秒（中文 TTS 约 3.5 字/秒，audio_script 必须长到让 TTS 时长 ≥ 90 秒，否则 -shortest 会把镜头截短）。这是硬性约束：20 镜 × 90 秒 = 1800 秒 = 30 分钟/集。audio_script 不足 300 字或 duration_seconds 非 90 会导致最终视频不足 30 分钟，视为失败
 6. 叙事结构：开篇铺垫 → 矛盾展开 → 高潮 → 悬念或收束

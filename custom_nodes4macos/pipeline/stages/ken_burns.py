@@ -39,6 +39,18 @@ class KenBurnsStage(Stage):
         height = ctx.config.get("ken_burns_height", 1920)
         fps = ctx.config.get("ken_burns_fps", 30)
         workers = ctx.config.get("ken_burns_workers", 2)
+        # 渲染帧率：zoompan 按 render_fps 逐帧计算运动，再 ,fps=fps 补帧到输出帧率。
+        # 慢速推镜（zoom-in/out、pan）下肉眼不可见跳帧，纯性能收益。
+        # 默认 0 = 自动取 max(8, fps//2)；显式设为 fps 可关闭。
+        render_fps_cfg = int(ctx.config.get("ken_burns_render_fps", 0))
+        if render_fps_cfg > 0:
+            render_fps = min(render_fps_cfg, fps)
+        else:
+            render_fps = max(8, fps // 2)
+        logger.info(
+            "ken_burns: fps=%d render_fps=%d (zoompan 渲染帧率<输出帧率, 慢推镜无损)",
+            fps, render_fps,
+        )
 
         audio_cut = bool(ctx.config.get("ken_burns_audio_cut", False))
         sdb = ctx.config.get("ken_burns_silence_noise_db", -30)
@@ -60,9 +72,24 @@ class KenBurnsStage(Stage):
 
             audio_path = ctx.get_artifact(scene_id, "audio")
             duration = scene.get("duration_seconds", scene.get("duration", 8))
+            # 旁白时长驱动镜头时长：TTS 音频可能远长于 duration_seconds（如 984 字→209s），
+            # -shortest 会把视频截到较短者，导致长旁白被截断。取 max(配置, 实际音频)
+            # 让 zoompan 渲染到音频全长，最终镜头 = 完整旁白。
+            if audio_path and os.path.exists(audio_path):
+                try:
+                    from ..ffmpeg_util import probe_duration
+                    audio_dur = probe_duration(audio_path)
+                    if audio_dur > duration:
+                        logger.info(
+                            "ken_burns scene=%d 音频 %.1fs > duration_seconds %.1fs，按音频时长渲染",
+                            scene_id, audio_dur, duration,
+                        )
+                        duration = audio_dur
+                except Exception as exc:
+                    logger.warning("ken_burns scene=%d 探测音频时长失败(%s)，用 duration_seconds", scene_id, str(exc)[:80])
             out_path = ctx.artifact_path(scene_id, "clip")
 
-            tasks.append((img_path, audio_path, duration, preset, width, height, fps, scene_id, out_path))
+            tasks.append((img_path, audio_path, duration, preset, width, height, fps, render_fps, scene_id, out_path))
 
         if not tasks:
             logger.info("ken_burns: all clips already exist")
@@ -78,8 +105,8 @@ class KenBurnsStage(Stage):
     def _render_sequential(self, ctx, tasks, cut_cfg):
         from ..checkpoint import CheckpointManager
         checkpoint = CheckpointManager(ctx.job_dir)
-        for idx, (img, audio, dur, preset, w, h, fps, sid, out) in enumerate(tasks):
-            self._render_scene(img, audio, dur, preset, w, h, fps, sid, out, cut_cfg)
+        for idx, (img, audio, dur, preset, w, h, fps, render_fps, sid, out) in enumerate(tasks):
+            self._render_scene(img, audio, dur, preset, w, h, fps, render_fps, sid, out, cut_cfg)
             ctx.set_artifact(sid, "clip", out)
             ctx.update_progress("ken_burns", idx + 1, len(tasks))
             if ctx.should_checkpoint_scene(idx + 1):
@@ -92,9 +119,9 @@ class KenBurnsStage(Stage):
         done = 0
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {}
-            for idx, (img, audio, dur, preset, w, h, fps, sid, out) in enumerate(tasks):
+            for idx, (img, audio, dur, preset, w, h, fps, render_fps, sid, out) in enumerate(tasks):
                 fut = pool.submit(
-                    self._render_scene, img, audio, dur, preset, w, h, fps, sid, out, cut_cfg,
+                    self._render_scene, img, audio, dur, preset, w, h, fps, render_fps, sid, out, cut_cfg,
                 )
                 futures[fut] = (idx, sid, out)
             for fut in as_completed(futures):
@@ -107,7 +134,7 @@ class KenBurnsStage(Stage):
                 done += 1
                 ctx.update_progress("ken_burns", done, len(tasks))
 
-    def _render_scene(self, img, audio, dur, preset, w, h, fps, sid, out, cut_cfg):
+    def _render_scene(self, img, audio, dur, preset, w, h, fps, render_fps, sid, out, cut_cfg):
         audio_cut, sdb, smd, max_shots, min_cut_dur = cut_cfg
         if audio_cut and audio and os.path.exists(audio) and dur >= min_cut_dur:
             silences = _detect_silence(audio, sdb, smd)
@@ -116,7 +143,9 @@ class KenBurnsStage(Stage):
             if cut_frames:
                 seg_lengths = _cut_frames_to_seg_lengths(cut_frames, total_frames)
                 presets = _pick_multishot_presets(len(seg_lengths), preset)
-                zoompan = _build_zoompan_multishot(presets, seg_lengths, total_frames, w, h, fps)
+                # 多镜头分段的帧数(段长/总帧)按输出 fps 计算，render_fps 抽帧会改变段长比例，
+                # 故多镜头路径保持 render=fps，不抽帧（单镜头主路径才享 render_fps 优化）。
+                zoompan = _build_zoompan_multishot(presets, seg_lengths, total_frames, w, h, fps, fps)
                 logger.info(
                     "ken_burns scene=%d audio-cut shots=%d cuts=%s segs=%s",
                     sid, len(seg_lengths), cut_frames, seg_lengths,
@@ -124,7 +153,7 @@ class KenBurnsStage(Stage):
                 KenBurnsStage._run_zoompan_render(img, audio, dur, zoompan, fps, sid, out)
                 return
         logger.info("ken_burns scene=%d preset=%s dur=%.1f", sid, preset, dur)
-        self._render_clip(img, audio, dur, preset, w, h, fps, sid, out)
+        self._render_clip(img, audio, dur, preset, w, h, fps, render_fps, sid, out)
 
     @staticmethod
     def _render_clip(
@@ -135,11 +164,13 @@ class KenBurnsStage(Stage):
         width: int,
         height: int,
         fps: int,
+        render_fps: int,
         scene_id: int,
         out_path: str,
     ) -> None:
-        total_frames = max(1, round(duration * fps))
-        zoompan = _build_zoompan(preset, width, height, fps, total_frames)
+        # d 必须用 render_fps 的帧数，运动才能跨整段时长（输出帧率仅靠 ,fps=fps 补帧）。
+        render_frames = max(1, round(duration * render_fps))
+        zoompan = _build_zoompan(preset, width, height, fps, render_fps, render_frames)
         KenBurnsStage._run_zoompan_render(img_path, audio_path, duration, zoompan, fps, scene_id, out_path)
 
     @staticmethod
@@ -213,20 +244,25 @@ def _preset_motion(preset: str, D: int, on_var: str) -> tuple[str, str, str]:
     return z, x, y
 
 
-def _build_zoompan(preset: str, out_w: int, out_h: int, fps: int, total_frames: int) -> str:
-    D = max(1, total_frames)
+def _build_zoompan(
+    preset: str, out_w: int, out_h: int, out_fps: int, render_fps: int, render_frames: int,
+) -> str:
+    D = max(1, render_frames)
     z, x, y = _preset_motion(preset, D, "on")
-    return (
+    vf = (
         f"scale={out_w * 2}:{out_h * 2}:force_original_aspect_ratio=increase,"
         f"crop={out_w * 2}:{out_h * 2},setsar=1,"
-        f"zoompan=z='{z}':x='{x}':y='{y}':d={D}:s={out_w}x{out_h}:fps={fps},"
-        f"format=yuv420p"
+        f"zoompan=z='{z}':x='{x}':y='{y}':d={D}:s={out_w}x{out_h}:fps={render_fps}"
     )
+    if render_fps != out_fps:
+        vf += f",fps={out_fps}"
+    vf += ",format=yuv420p"
+    return vf
 
 
 def _build_zoompan_multishot(
     presets: list[str], seg_lengths: list[int], total_frames: int,
-    out_w: int, out_h: int, fps: int,
+    out_w: int, out_h: int, out_fps: int, render_fps: int,
 ) -> str:
     n = len(seg_lengths)
     start_frames = [0]
@@ -254,12 +290,15 @@ def _build_zoompan_multishot(
     x = nest(x_parts)
     y = nest(y_parts)
     D = max(1, total_frames)
-    return (
+    vf = (
         f"scale={out_w * 2}:{out_h * 2}:force_original_aspect_ratio=increase,"
         f"crop={out_w * 2}:{out_h * 2},setsar=1,"
-        f"zoompan=z='{z}':x='{x}':y='{y}':d={D}:s={out_w}x{out_h}:fps={fps},"
-        f"format=yuv420p"
+        f"zoompan=z='{z}':x='{x}':y='{y}':d={D}:s={out_w}x{out_h}:fps={render_fps}"
     )
+    if render_fps != out_fps:
+        vf += f",fps={out_fps}"
+    vf += ",format=yuv420p"
+    return vf
 
 
 def _detect_silence(audio_path: str, noise_db: int, min_dur: float) -> list[tuple[float, float]]:
