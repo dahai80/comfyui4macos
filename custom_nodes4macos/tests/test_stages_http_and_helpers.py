@@ -77,12 +77,20 @@ class TestTtsSynthesizeHttpFallback(unittest.TestCase):
         finally:
             os.unlink(out_path)
 
-    def test_synthesize_http_empty_raises(self):
+    def test_synthesize_http_empty_falls_back_to_silence(self):
+        # 自愈分块: synthesize 返回空/失败 -> 静音兜底, 不抛异常 (job 必完成不丢整段).
         from custom_nodes4macos.pipeline.stages.tts_synthesize import TTSSynthesizeStage
         handle = MagicMock()
         handle.client.synthesize_speech.return_value = b""
-        with self.assertRaises(RuntimeError):
-            TTSSynthesizeStage._synthesize_http(handle, "tts-model", "t", "", "", 1.0, "/tmp/x.wav")
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+            out_path = tf.name
+        try:
+            TTSSynthesizeStage._synthesize_http(handle, "tts-model", "t", "", "", 1.0, out_path)
+            self.assertTrue(os.path.exists(out_path))
+            with open(out_path, "rb") as f:
+                self.assertTrue(f.read().startswith(b"RIFF"))
+        finally:
+            os.unlink(out_path)
 
 
 class TestPromptExpandHelpers(unittest.TestCase):
